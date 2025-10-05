@@ -29,6 +29,9 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    port: 3000,
+    host: true,
+    hmr: false, // Disable HMR to prevent WebSocket errors
     fs: {
       strict: true,
       deny: ["**/.*"],

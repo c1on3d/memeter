@@ -1,8 +1,9 @@
 // API configuration for different environments
 const getApiBaseUrl = () => {
-  // In production (Vercel), use Vercel's API routes
+  // Use Railway backend for both development and production
+  // This ensures live token data is available everywhere
   if (process.env.NODE_ENV === 'production') {
-    return ''; // Use relative URLs for Vercel API routes
+    return 'https://memeter-backend.up.railway.app'; // Railway backend
   }
   
   // In development, use localhost

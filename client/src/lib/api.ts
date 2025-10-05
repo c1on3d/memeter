@@ -1,9 +1,9 @@
 // API configuration for different environments
 const getApiBaseUrl = () => {
-  // Use Railway backend for both development and production
+  // Use Render backend for both development and production
   // This ensures live token data is available everywhere
   if (process.env.NODE_ENV === 'production') {
-    return 'https://memeter-backend.up.railway.app'; // Railway backend
+    return 'https://memeter-backend.onrender.com'; // Render backend
   }
   
   // In development, use localhost

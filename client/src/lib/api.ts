@@ -1,8 +1,8 @@
 // API configuration for different environments
 const getApiBaseUrl = () => {
-  // In production (Vercel), use your Render backend
+  // In production (Vercel), use Vercel's API routes
   if (process.env.NODE_ENV === 'production') {
-    return 'https://memeter-backend.onrender.com'; // You'll get this URL from Render
+    return ''; // Use relative URLs for Vercel API routes
   }
   
   // In development, use localhost
@@ -26,9 +26,9 @@ export const buildApiUrl = (endpoint: string): string => {
 // API endpoints - different for local vs production
 export const API_ENDPOINTS = {
   NEW_TOKENS: '/api/pumpportal/new-tokens',
-  MIGRATIONS: process.env.NODE_ENV === 'production' ? '/api/migrations/recent' : '/api/migrations/recent',
-  SOLANA_STATS: process.env.NODE_ENV === 'production' ? '/api/analytics/solana-network' : '/api/analytics/solana-network',
-  TRENDING_TOKENS: process.env.NODE_ENV === 'production' ? '/api/tokens' : '/api/tokens',
+  MIGRATIONS: '/api/migrations',
+  SOLANA_STATS: '/api/solana/network-stats',
+  TRENDING_TOKENS: '/api/tokens/trending',
   TOKENS: '/api/tokens',
   SEARCH_TOKENS: '/api/tokens/search',
   TOKEN_IMAGE: '/api/tokens',

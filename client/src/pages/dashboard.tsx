@@ -5,7 +5,7 @@ import { MigrationFeed } from "@/components/MigrationFeed";
 import { TokenTable } from "@/components/TokenTable";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useNewTokensLive } from "@/hooks/useNewTokensLive";
-import { Search, Heart, Settings, Wallet, ExternalLink, TrendingUp, Moon, Sun, BarChart3, Loader2, X, Activity, Timer, Target, TrendingDown, RefreshCw, ExternalLinkIcon, Star } from "lucide-react";
+import { Search, Heart, Settings, Wallet, ExternalLink, TrendingUp, BarChart3, Loader2, X, Activity, Timer, Target, TrendingDown, RefreshCw, ExternalLinkIcon, Star } from "lucide-react";
 import { SiX, SiSolana } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +34,7 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const tokensPerPage = 20;
 
-  const { theme, setTheme } = useTheme();
+  const { theme } = useTheme();
   const { toast } = useToast();
   const { toggleFavorite, isFavorite, toggleCategorizedFavorite } = useFavorites();
 
@@ -285,6 +285,35 @@ export default function Dashboard() {
                   </span>
               </div>
               
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                asChild 
+                data-testid="button-favorites"
+                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-orange-500/10 hover:text-orange-500 hover:border-orange-500/20 hover:shadow-orange-500/25"
+              >
+                <Link href="/favorites">
+                  <Star className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
+                  Favorites
+                </Link>
+              </Button>
+              
+              <Button 
+                variant={connected ? "default" : "secondary"} 
+                size="sm" 
+                onClick={handleWalletConnect}
+                data-testid="button-wallet"
+                className={`hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/20 hover:shadow-green-500/25 ${connected ? 
+                  "bg-green-600 hover:bg-green-700 hover:scale-105 hover:shadow-lg transition-all duration-200" : 
+                  ""
+                }`}
+              >
+                <Wallet className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
+                {connected ? 
+                  `${publicKey?.slice(0, 4)}...${publicKey?.slice(-4)}` : 
+                  "Wallet"
+                }
+              </Button>
             </div>
             
             <div className="flex items-center space-x-4">
@@ -350,18 +379,6 @@ export default function Dashboard() {
                 }
               </Button>
               
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-blue-500/10 hover:text-blue-500 hover:border-blue-500/20 hover:shadow-blue-500/25"
-              >
-                {theme === 'dark' ? (
-                  <Sun className="h-4 w-4 transition-transform duration-200 hover:scale-110" />
-                ) : (
-                  <Moon className="h-4 w-4 transition-transform duration-200 hover:scale-110" />
-                )}
-              </Button>
             </div>
           </div>
         </div>

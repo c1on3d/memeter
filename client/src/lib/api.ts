@@ -23,12 +23,12 @@ export const buildApiUrl = (endpoint: string): string => {
   return cleanEndpoint;
 };
 
-// API endpoints
+// API endpoints - different for local vs production
 export const API_ENDPOINTS = {
   NEW_TOKENS: '/api/pumpportal/new-tokens',
-  MIGRATIONS: '/api/migrations',
-  SOLANA_STATS: '/api/solana/network-stats',
-  TRENDING_TOKENS: '/api/tokens/trending',
+  MIGRATIONS: process.env.NODE_ENV === 'production' ? '/api/migrations' : '/api/migrations/recent',
+  SOLANA_STATS: process.env.NODE_ENV === 'production' ? '/api/solana/network-stats' : '/api/analytics/solana-network',
+  TRENDING_TOKENS: process.env.NODE_ENV === 'production' ? '/api/tokens/trending' : '/api/tokens',
   TOKENS: '/api/tokens',
   SEARCH_TOKENS: '/api/tokens/search',
   TOKEN_IMAGE: '/api/tokens',

@@ -269,16 +269,16 @@ export default function Dashboard() {
       <header className="bg-black sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4" style={{ width: 'calc(25% - 1rem)' }}>
+            <div className="flex items-center space-x-4" style={{ width: 'calc(25% - 1rem)', justifyContent: 'flex-end' }}>
               {/* Logo - Memeter logo SVG - Aligned with end of blue rectangle */}
-              <div className="relative w-32 h-32 ml-auto">
+              <div className="relative w-32 h-32">
                 <img 
                   src="/memeter-logo.svg" 
                   alt="Memeter Logo" 
                   className="w-full h-full object-contain"
                 />
                 </div>
-              <div className="flex items-center space-x-1 ml-auto">
+              <div className="flex items-center space-x-1">
                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
                   <span className="text-sm text-muted-foreground" data-testid="connection-status">
                     Live

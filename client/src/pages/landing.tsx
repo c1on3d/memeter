@@ -163,75 +163,43 @@ export default function Landing() {
               </p>
             </div>
 
-            {/* Connection Status */}
-            <Card className="max-w-md mx-auto mb-8 border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-blue-600/10">
-              <CardContent className="p-8">
-                <div className="flex items-center justify-center mb-6">
-                  <Wallet className="h-12 w-12 text-blue-500" />
+            {/* Small Orange Wallet Button */}
+            <div className="mb-8">
+              {!isPhantomInstalled ? (
+                <Button 
+                  onClick={() => window.open("https://phantom.app/", "_blank")}
+                  size="sm"
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Install Phantom Wallet
+                </Button>
+              ) : connected ? (
+                <div className="flex items-center justify-center space-x-2 text-green-500">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-sm">Connected: {publicKey?.slice(0, 4)}...{publicKey?.slice(-4)}</span>
                 </div>
-                
-                {!isPhantomInstalled ? (
-                  <div className="text-center space-y-4">
-                    <AlertCircle className="h-8 w-8 text-orange-500 mx-auto" />
-                    <h3 className="text-lg font-semibold">Phantom Wallet Required</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Install Phantom wallet to access MEMETER's advanced analytics
-                    </p>
-                    <Button 
-                      onClick={() => window.open("https://phantom.app/", "_blank")}
-                      className="w-full bg-blue-600 hover:bg-blue-700"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Install Phantom Wallet
-                    </Button>
-                  </div>
-                ) : connected ? (
-                  <div className="text-center space-y-4">
-                    <CheckCircle className="h-8 w-8 text-green-500 mx-auto" />
-                    <h3 className="text-lg font-semibold">Wallet Connected</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {publicKey?.slice(0, 8)}...{publicKey?.slice(-8)}
-                    </p>
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="animate-spin h-4 w-4 border-2 border-green-500 border-t-transparent rounded-full"></div>
-                      <span className="text-sm text-muted-foreground">Redirecting to dashboard...</span>
-                    </div>
-                    <Button 
-                      onClick={() => setLocation('/dashboard')}
-                      className="w-full bg-green-600 hover:bg-green-700"
-                    >
-                      <ArrowRight className="h-4 w-4 mr-2" />
-                      Enter Dashboard Now
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-center space-y-4">
-                    <h3 className="text-lg font-semibold">Connect Your Wallet</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Connect your Phantom wallet to access the platform
-                    </p>
-                    <Button 
-                      onClick={handleConnect}
-                      disabled={isConnecting}
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700 text-sm px-4 py-2"
-                    >
-                      {isConnecting ? (
-                        <>
-                          <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
-                          Connecting...
-                        </>
-                      ) : (
-                        <>
-                          <Wallet className="h-3 w-3 mr-2" />
-                          Connect Wallet
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              ) : (
+                <Button 
+                  onClick={handleConnect}
+                  disabled={isConnecting}
+                  size="sm"
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  {isConnecting ? (
+                    <>
+                      <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="h-4 w-4 mr-2" />
+                      Connect Wallet
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
 
             {/* Direct Dashboard Access */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">

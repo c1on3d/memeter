@@ -1,0 +1,85 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+const { Connection, PublicKey } = require('@solana/web3.js');
+
+const app = express();
+app.use(bodyParser.json({limit: '5mb'}));
+
+const HELIUS_RPC = process.env.HELIUS_RPC;
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+const connection = new Connection(HELIUS_RPC.replace('https://','https://'), 'confirmed');
+
+// helper: fetch token USD price via CoinGecko (fallback)
+async function getSolUsdPrice() {
+  const res = await axios.get(`${process.env.COINGECKO_BASE}/simple/price?ids=solana&vs_currencies=usd`);
+  return res.data?.solana?.usd || 0;
+}
+
+// webhook endpoint Helius will POST to
+app.post('/helius-webhook', async (req, res) => {
+  // optional: verify Helius signature here if configured
+  const event = req.body;
+  // Helius can send decoded transactions; check for transaction type and decoded instructions
+  try {
+    // Example: look for transactions that include migration instruction(s)
+    // You'll need to tailor detection to Pump.fun/migration program IDs and instruction names.
+    await handleHeliusEvent(event);
+  } catch (e) {
+    console.error(e);
+  }
+  res.sendStatus(200);
+});
+
+// process incoming event
+async function handleHeliusEvent(event) {
+  // event may be { type: 'TRANSACTION', ... } or decoded transaction array
+  // example logic:
+  if (!event || !event.transaction) return;
+  const tx = event.transaction;
+  // 1) Detect migration: search decoded instructions for known program ids / method names like 'migrate', 'init_pool' etc.
+  const migrated = detectMigration(tx);
+  if (!migrated) return;
+
+  const mint = migrated.mint; // token mint address
+  // 2) After migration, compute trading volume: query Helius RPC or token transfer history
+  const usdVolume = await computePostMigrationUsdVolume(mint, migrated.migrationSlot);
+  if (usdVolume >= 50000) {
+    console.log(`TOKEN ${mint} migrated at slot ${migrated.migrationSlot} volume USD=${usdVolume}`);
+    // push to DB, notify, list it
+  }
+}
+
+function detectMigration(tx) {
+  // Minimal heuristic:
+  // - loop decodedInstructions, find one from pump.fun bonding program or AMM program
+  // - if instruction name includes 'migrate' or 'swap' or 'init_pool' return {mint, migrationSlot}
+  if (!tx.meta || !tx.transaction) return null;
+  const decoded = tx.transaction.message?.instructions || [];
+  for (const ins of decoded) {
+    // ins.programId or ins.parsed?.type or ins.parsed?.info can be used
+    // Replace with actual program IDs / checks for your target bonding curve implementation.
+    if (ins.programId === 'PUMP_FUN_PROGRAM_ID' || (ins.parsed && ins.parsed.type === 'migrate')) {
+      const mint = ins.parsed?.info?.mint || ins.parsed?.info?.tokenMint || null;
+      return { mint, migrationSlot: tx.slot || Date.now() };
+    }
+  }
+  return null;
+}
+
+async function computePostMigrationUsdVolume(mint, sinceSlot) {
+  // Approach:
+  // 1) Use Helius "get token transfer history" or RPC getSignaturesForAddress + getParsedTransaction to collect transfers for that mint where slot >= sinceSlot.
+  // 2) For each transfer, convert token amount to USD:
+  //    - If transfer pair involves SOL or stablecoin, convert using price at that time (use CoinGecko SOL price or Pyth feed)
+  //    - If pair is pure token-token and no price feed, try to infer price from pool reserves or last trade on AMM.
+  //
+  // Below is a simplified example that sums SOL volume only by detecting SOL<>token transfers.
+  let totalUsd = 0;
+  // fetch recent signatures for mint token accounts via Helius RPC getTokenAccountsByOwner or getProgramAccounts then get transactions
+  // For brevity here we return 0. Implement using connection.getSignaturesForAddress + connection.getParsedTransaction
+  return totalUsd;
+}
+
+const port = process.env.PORT || 3000;
+app.listen(port, ()=> console.log('listening', port));

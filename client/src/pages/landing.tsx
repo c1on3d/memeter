@@ -126,6 +126,22 @@ export default function Landing() {
                 variant="secondary" 
                 size="sm" 
                 asChild
+                title="View Documentation"
+                className="hover:scale-105 hover:shadow-md transition-all duration-200 hover:bg-blue-500/10 hover:text-blue-500 hover:border-blue-500/20"
+              >
+                <a
+                  href="https://docs.memeter.fun"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 transition-transform duration-200 hover:scale-110 hover:rotate-6" />
+                </a>
+              </Button>
+
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                asChild
                 title="Follow us on X/Twitter"
                 className="hover:scale-105 hover:shadow-md transition-all duration-200 hover:bg-black/10 hover:text-black dark:hover:bg-white/10 dark:hover:text-white hover:border-gray-500/20"
               >

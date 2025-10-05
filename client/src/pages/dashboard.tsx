@@ -34,6 +34,15 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const tokensPerPage = 20;
 
+  // Authentication check - redirect to landing if not authenticated
+  useEffect(() => {
+    const isAuthenticated = localStorage.getItem('memeter_authenticated');
+    if (!isAuthenticated) {
+      console.log('Dashboard access denied - not authenticated, redirecting to landing');
+      setLocation('/');
+    }
+  }, [setLocation]);
+
   const { theme } = useTheme();
   const { toast } = useToast();
   const { toggleFavorite, isFavorite, toggleCategorizedFavorite } = useFavorites();
@@ -243,6 +252,8 @@ export default function Dashboard() {
     try {
       if (connected) {
         await disconnect();
+        // Clear authentication when wallet is disconnected
+        localStorage.removeItem('memeter_authenticated');
         toast({
           title: "Wallet Disconnected",
           description: "Your Phantom wallet has been disconnected.",

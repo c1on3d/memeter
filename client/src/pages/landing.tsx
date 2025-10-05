@@ -32,6 +32,14 @@ export default function Landing() {
   const { publicKey, connected, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
   const { toast } = useToast();
 
+  // Check for existing authentication on page load
+  useEffect(() => {
+    const storedAuth = localStorage.getItem('memeter_authenticated');
+    if (storedAuth === 'true') {
+      setIsAuthenticated(true);
+    }
+  }, []);
+
   // Redirect to dashboard if already connected and authenticated
   useEffect(() => {
     console.log('Landing page - Wallet state:', { connected, publicKey: publicKey?.slice(0, 8) + '...', isAuthenticated });
@@ -49,6 +57,8 @@ export default function Landing() {
   const handlePasswordSubmit = () => {
     if (validatePassword(password)) {
       setIsAuthenticated(true);
+      // Store authentication in localStorage for persistent access
+      localStorage.setItem('memeter_authenticated', 'true');
       setIsPasswordDialogOpen(false);
       toast({
         title: "Access Granted",

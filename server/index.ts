@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { setupRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -9,6 +10,14 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const app = express();
+
+// Enable CORS for all routes
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 
 // Raw body capture middleware for webhook HMAC verification
 app.use('/webhook', express.raw({ type: 'application/json', limit: '1mb' }), (req: any, res, next) => {

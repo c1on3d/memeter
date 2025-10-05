@@ -20,14 +20,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const endpoint of endpoints) {
       try {
         console.log(`Trying endpoint: ${endpoint}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
         const response = await fetch(endpoint, {
           headers: {
             'Accept': 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': 'https://pump.fun/'
           },
-          timeout: 10000
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();
@@ -43,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           console.log(`Failed with status ${response.status} for ${endpoint}`);
         }
       } catch (error) {
-        console.log(`Error with endpoint ${endpoint}:`, error.message);
+        console.log(`Error with endpoint ${endpoint}:`, error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -60,6 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(500).json({
       success: false,
       error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }

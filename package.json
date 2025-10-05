@@ -4,8 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "NODE_ENV=development tsx server/index.ts",
-    "dev:frontend": "vite",
+    "dev": "npx cross-env NODE_ENV=development tsx server/index.ts",
+    "dev:frontend": "cd client && npm run dev",
     "build": "vite build",
     "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "build:all": "npm run build && npm run build:server",
@@ -55,6 +55,7 @@
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
+    "cross-env": "^10.1.0",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.2.0",
     "drizzle-orm": "^0.39.1",

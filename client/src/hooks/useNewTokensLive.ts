@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 
 export interface LiveTokenData {
   mint: string;
@@ -36,7 +37,7 @@ export function useNewTokensLive() {
 
   const fetchNewTokens = async () => {
     try {
-      const response = await fetch('/api/pumpportal/new-tokens?limit=30');
+      const response = await fetch(buildApiUrl(`${API_ENDPOINTS.NEW_TOKENS}?limit=30`));
       const result = await response.json();
       
       if (result.success && result.data) {

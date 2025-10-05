@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Pagination } from "@/components/Pagination";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
+import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
@@ -64,7 +65,7 @@ export default function Dashboard() {
   const { data: solanaNetworkStats } = useQuery({
     queryKey: ['solanaNetworkStats'],
     queryFn: async () => {
-      const response = await fetch('/api/solana/network-stats');
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.SOLANA_STATS));
       if (!response.ok) {
         throw new Error('Failed to fetch network stats');
       }
@@ -85,7 +86,7 @@ export default function Dashboard() {
   } = useQuery({
     queryKey: ['migrationFeed'],
     queryFn: async () => {
-      const response = await fetch('/api/migrations');
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.MIGRATIONS));
       if (!response.ok) {
         throw new Error('Failed to fetch migration data');
       }
@@ -106,7 +107,7 @@ export default function Dashboard() {
   } = useQuery({
     queryKey: ['trendingTokens'],
     queryFn: async () => {
-      const response = await fetch('/api/tokens/trending');
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.TRENDING_TOKENS));
       if (!response.ok) {
         throw new Error('Failed to fetch trending data');
       }
@@ -135,7 +136,7 @@ export default function Dashboard() {
       if (filters.sortBy) params.append('sortBy', filters.sortBy);
       if (filters.sortOrder) params.append('sortOrder', filters.sortOrder);
       
-      const response = await fetch(`/api/tokens?${params.toString()}`);
+      const response = await fetch(buildApiUrl(`${API_ENDPOINTS.TOKENS}?${params.toString()}`));
       if (!response.ok) {
         throw new Error('Failed to fetch tokens');
       }
@@ -175,7 +176,7 @@ export default function Dashboard() {
       // Search for SPL token by address
       setIsSearching(true);
       try {
-        const response = await fetch(`/api/tokens/search/${encodeURIComponent(searchTerm)}`);
+        const response = await fetch(buildApiUrl(`${API_ENDPOINTS.SEARCH_TOKENS}/${encodeURIComponent(searchTerm)}`));
         if (response.ok) {
           const data = await response.json();
           setSearchResult(data);

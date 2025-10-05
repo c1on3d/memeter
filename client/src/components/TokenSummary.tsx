@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import type { TokenWithMetrics } from "@/types";
+import { buildApiUrl } from "@/lib/api";
 
 interface TokenSummaryProps {
   token: TokenWithMetrics | null;
@@ -65,7 +66,7 @@ export function TokenSummary({ token, open, onClose }: TokenSummaryProps) {
     setError(null);
     
     try {
-      const response = await fetch(`/api/tokens/${token.address}/analysis`);
+      const response = await fetch(buildApiUrl(`/api/tokens/${token.address}/analysis`));
       if (!response.ok) {
         throw new Error('Failed to fetch token analysis');
       }

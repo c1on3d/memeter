@@ -8,6 +8,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { useState, useEffect, useMemo } from "react";
 import { getSolPrice, formatUSD } from "@/services/solPriceService";
+import { buildApiUrl } from "@/lib/api";
 import { TokenSummary } from "@/components/TokenSummary";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
@@ -259,7 +260,7 @@ export function TokenTable({ tokens, searchQuery, filters, onRefresh, onFiltersC
       }
 
       // Fetch image URL
-      fetch(`/api/tokens/${token.address}/image.json`)
+      fetch(buildApiUrl(`/api/tokens/${token.address}/image.json`))
         .then(response => response.json())
         .then(data => {
           if (data.status === 'resolved' && data.url) {

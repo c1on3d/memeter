@@ -11,38 +11,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // Return demo migration data since we don't have a database on Vercel
-    const demoMigrations = Array.from({ length: 15 }, (_, i) => ({
-      id: `migration_${i + 1}`,
-      tokenAddress: `migrated_token_${i + 1}`,
-      tokenName: `Migrated Token ${i + 1}`,
-      tokenSymbol: `MIG${i + 1}`,
-      fromPool: 'pump',
-      toPool: 'raydium',
-      migrationTime: new Date(Date.now() - Math.random() * 86400000 * 7).toISOString(), // Last 7 days
-      migrationThreshold: Math.floor(Math.random() * 100) + 30,
-      success: Math.random() > 0.1, // 90% success rate
-      volume: Math.floor(Math.random() * 1000000) + 10000,
-    }));
-
+    // Try to fetch real migration data from pump.fun or other sources
+    // For now, return empty array since migration data is harder to get from public APIs
     res.status(200).json({
       success: true,
-      migrations: demoMigrations,
-      total: demoMigrations.length,
-      note: 'Using demo migration data',
+      migrations: [],
+      total: 0,
+      message: 'Migration data not available from public APIs',
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('Error in migrations API:', error);
-    
-    // Return empty migrations on error
-    res.status(200).json({
-      success: true,
-      migrations: [],
-      total: 0,
-      note: 'No migration data available',
-      timestamp: new Date().toISOString()
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      migrations: []
     });
   }
 }

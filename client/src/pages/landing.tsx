@@ -3,8 +3,6 @@ import { useLocation, Link } from "wouter";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { 
   Wallet, 
-  Moon, 
-  Sun, 
   ArrowRight,
   Shield,
   Activity,
@@ -23,7 +21,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { useTheme } from "@/contexts/ThemeContext";
 
 export default function Landing() {
   const [, setLocation] = useLocation();
@@ -34,7 +31,6 @@ export default function Landing() {
 
   const { publicKey, connected, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme();
 
   // Redirect to dashboard if already connected and authenticated
   useEffect(() => {
@@ -142,20 +138,6 @@ export default function Landing() {
             </div>
             
             <div className="flex items-center space-x-4">
-              <Button 
-                variant="secondary" 
-                size="sm" 
-                onClick={toggleTheme}
-                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                className="hover:scale-105 hover:shadow-md transition-all duration-200 hover:bg-yellow-500/10 hover:text-yellow-500 hover:border-yellow-500/20"
-              >
-                {theme === 'light' ? (
-                  <Moon className="h-4 w-4 transition-transform duration-200 hover:scale-110 hover:rotate-12" />
-                ) : (
-                  <Sun className="h-4 w-4 transition-transform duration-200 hover:scale-110 hover:rotate-45" />
-                )}
-              </Button>
-
               <Button 
                 variant="secondary" 
                 size="sm" 

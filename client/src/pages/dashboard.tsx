@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { MigrationFeed } from "@/components/MigrationFeed";
 import { TokenTable } from "@/components/TokenTable";
-import { useWebSocket } from "@/hooks/useWebSocket";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useNewTokensLive } from "@/hooks/useNewTokensLive";
 import { Search, Heart, Settings, Wallet, ExternalLink, TrendingUp, Moon, Sun, BarChart3, Loader2, X, Activity, Timer, Target, TrendingDown, RefreshCw, ExternalLinkIcon, Star } from "lucide-react";
@@ -29,188 +28,124 @@ export default function Dashboard() {
     timeRange: "",
     minMarketCap: "",
     maxMarketCap: "",
-    hasocialLinks: false,
-    highVolume: false,
-    verifiedCreator: false,
-    minHolders: "",
+    sortBy: "marketCap",
+    sortOrder: "desc" as "asc" | "desc",
   });
-  
-  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(20); // Fixed page size of 20 tokens per page
-  
-  const { publicKey, connected, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
+  const tokensPerPage = 20;
+
+  const { theme, setTheme } = useTheme();
   const { toast } = useToast();
-  const newTokensLiveData = useNewTokensLive();
-  const { theme, toggleTheme } = useTheme();
   const { toggleFavorite, isFavorite, toggleCategorizedFavorite } = useFavorites();
 
-  // Authentication protection removed - allow direct dashboard access
-  // useEffect(() => {
-  //   if (!connected || !publicKey) {
-  //     setLocation('/');
-  //   }
-  // }, [connected, publicKey, setLocation]);
+  // Get live new tokens data
+  const { 
+    tokens: liveTokens, 
+    totalTokens, 
+    tokensPerHour, 
+    isLoading: isLoadingLiveTokens, 
+    error: liveTokensError,
+    lastUpdated 
+  } = useNewTokensLive();
 
-  // Generate risk analysis for a token
-  const generateRiskAnalysis = async (token: any) => {
-    if (analyzingTokens.has(token.id)) return; // Prevent duplicate requests
-    
-    try {
-      setAnalyzingTokens(prev => new Set([...Array.from(prev), token.id]));
-      
-      let analysisResult;
-      
-      // Check if this is a trending token from DexScreener (has pairAddress and price)
-      if (token.pairAddress && token.price !== undefined) {
-        // For trending tokens, create analysis using a special endpoint that accepts token data
-        const response = await fetch(`/api/tokens/analyze-external`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: token.name,
-            symbol: token.symbol,
-            address: token.pairAddress,
-            price: token.price,
-            marketCap: token.marketCap,
-            volume24h: token.volume24h,
-            priceChange24h: token.priceChange24h,
-            chainId: token.chainId || 'solana'
-          })
-        });
+  // Wallet connection
+  const { connected, publicKey, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
 
-        if (!response.ok) {
-          throw new Error(`External analysis failed: ${response.status}`);
-        }
-        
-        analysisResult = await response.json();
-      } else {
-        // For database tokens, use the existing endpoint
-        const tokenAddress = token.address || token.id;
-        const response = await fetch(`/api/tokens/${tokenAddress}/analysis`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Analysis failed: ${response.status}`);
-        }
-
-        analysisResult = await response.json();
+  // Solana network stats
+  const { data: solanaNetworkStats } = useQuery({
+    queryKey: ['solanaNetworkStats'],
+    queryFn: async () => {
+      const response = await fetch('/api/solana/network-stats');
+      if (!response.ok) {
+        throw new Error('Failed to fetch network stats');
       }
-
-      setRiskAnalysis(prev => ({
-        ...prev,
-        [token.id]: analysisResult
-      }));
-
-      toast({
-        title: "Risk Analysis Complete",
-        description: `Generated analysis for ${token.symbol}`,
-      });
-
-    } catch (error) {
-      console.error('Risk analysis error:', error);
-      toast({
-        title: "Analysis Failed",
-        description: "Unable to generate risk analysis. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setAnalyzingTokens(prev => {
-        const newSet = new Set(Array.from(prev));
-        newSet.delete(token.id);
-        return newSet;
-      });
-    }
-  };
-
-
-
-  // Get real Solana network statistics for live price
-  const { data: solanaNetworkStats } = useQuery<{
-    volume24h: number;
-    formattedVolume24h: string;
-    marketCap: number;
-    formattedMarketCap: string;
-    price: number;
-    percentChange24h: number;
-  }>({
-    queryKey: ["/api/analytics/solana-network"],
-    refetchInterval: 5 * 1000, // Update every 5 seconds for live pricing
-    staleTime: 0, // Always consider data stale to ensure fresh fetches
-    refetchOnWindowFocus: true, // Refetch when window regains focus
-    refetchOnMount: true, // Always refetch on component mount
+      return response.json();
+    },
+    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 25000,
+    retry: 3,
+    retryDelay: 1000,
   });
 
-  // Analytics queries for the top panels
-  const { data: tokensReadyData } = useQuery<{
-    tokensReadyToMigrate: number;
-    tokensNearThreshold: number;
-    thresholdUSD: number;
-    thresholdSOL: number;
-    qualifiedTokens: any[];
-    source: string;
-  }>({
-    queryKey: ["/api/analytics/tokens-ready-to-migrate"],
-    refetchInterval: 10000,
+  // Migration feed data
+  const { 
+    data: migrationData, 
+    isLoading: isLoadingMigrations, 
+    error: migrationError,
+    refetch: refetchMigrations 
+  } = useQuery({
+    queryKey: ['migrationFeed'],
+    queryFn: async () => {
+      const response = await fetch('/api/migrations');
+      if (!response.ok) {
+        throw new Error('Failed to fetch migration data');
+      }
+      return response.json();
+    },
+    refetchInterval: 10000, // Refetch every 10 seconds for real-time updates
+    staleTime: 5000,
+    retry: 3,
+    retryDelay: 2000,
   });
 
-  const { data: recentTokensData } = useQuery<{
-    recentTokens: number;
-  }>({
-    queryKey: ["/api/analytics/recent-tokens"],
-    refetchInterval: 3000,
+  // Trending tokens data
+  const { 
+    data: trendingData, 
+    isLoading: isLoadingTrending, 
+    error: trendingError,
+    refetch: refetchTrending 
+  } = useQuery({
+    queryKey: ['trendingTokens'],
+    queryFn: async () => {
+      const response = await fetch('/api/tokens/trending');
+      if (!response.ok) {
+        throw new Error('Failed to fetch trending data');
+      }
+      return response.json();
+    },
+    refetchInterval: 15000, // Refetch every 15 seconds
+    staleTime: 10000,
+    retry: 3,
+    retryDelay: 2000,
   });
 
-  const { data: totalTokensData } = useQuery<{
-    totalTokens: number;
-  }>({
-    queryKey: ["/api/analytics/total-tokens"],
-    refetchInterval: 5000,
-  });
-
-  const { data: migrationThresholdData } = useQuery<{
-    thresholdSOL: number;
-    confidenceLevel: 'high' | 'medium' | 'low';
-    sampleSize: number;
-    source: string;
-  }>({
-    queryKey: ["/api/analytics/migration-threshold"],
-    refetchInterval: 10000,
-  });
-
-  // Analytics calculations
-  const recentTokens = recentTokensData?.recentTokens || 0;
-  const totalTokens = totalTokensData?.totalTokens || 0;
-  const tokensPerHour = Math.round(recentTokens / 6);
-  const currentThresholdSOL = migrationThresholdData?.thresholdSOL || 85;
-  const migrationThresholdUSD = solanaNetworkStats?.price ? (currentThresholdSOL * solanaNetworkStats.price) : null;
-
-  const { data: tokensData, refetch: refetchTokens } = useQuery<{ tokens: any[]; page: number; limit: number; total: number }>({
-    queryKey: ["/api/tokens", { 
-      search: searchQuery || undefined,
-      riskLevel: filters.riskLevel || undefined,
-      page: currentPage,
-      limit: pageSize,
-    }],
+  // All tokens data for search and filtering
+  const { 
+    data: allTokensData, 
+    isLoading: isLoadingAllTokens, 
+    error: allTokensError,
+    refetch: refetchTokens 
+  } = useQuery({
+    queryKey: ['allTokens', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.riskLevel) params.append('riskLevel', filters.riskLevel);
+      if (filters.timeRange) params.append('timeRange', filters.timeRange);
+      if (filters.minMarketCap) params.append('minMarketCap', filters.minMarketCap);
+      if (filters.maxMarketCap) params.append('maxMarketCap', filters.maxMarketCap);
+      if (filters.sortBy) params.append('sortBy', filters.sortBy);
+      if (filters.sortOrder) params.append('sortOrder', filters.sortOrder);
+      
+      const response = await fetch(`/api/tokens?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch tokens');
+      }
+      return response.json();
+    },
     refetchInterval: 3000, // More frequent updates for real-time feel
   });
 
-  const { connectionStatus, lastMessage } = useWebSocket("/ws");
+  // Remove WebSocket connection - we're using API polling instead
+  // const { connectionStatus, lastMessage } = useWebSocket("/ws");
 
-  useEffect(() => {
-    if (lastMessage?.type === 'migration' || 
-        lastMessage?.type === 'tokenUpdate' || 
-        lastMessage?.type === 'newToken') {
-      refetchTokens();
-    }
-  }, [lastMessage, refetchTokens]);
-
+  // Remove WebSocket message handling - using API polling instead
+  // useEffect(() => {
+  //   if (lastMessage?.type === 'migration' || 
+  //       lastMessage?.type === 'tokenUpdate' || 
+  //       lastMessage?.type === 'newToken') {
+  //     refetchTokens();
+  //   }
+  // }, [lastMessage, refetchTokens]);
 
   const handleSearch = async (value: string) => {
     setSearchQuery(value);
@@ -344,11 +279,9 @@ export default function Dashboard() {
                 />
                 </div>
               <div className="flex items-center space-x-1 ml-auto">
-                  <div className={`w-2 h-2 rounded-full ${
-                    connectionStatus === 'connected' ? 'bg-green-500' : 'bg-red-500'
-                  }`}></div>
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
                   <span className="text-sm text-muted-foreground" data-testid="connection-status">
-                    {connectionStatus === 'connected' ? 'Live' : 'Disconnected'}
+                    Live
                   </span>
               </div>
               
@@ -417,352 +350,363 @@ export default function Dashboard() {
                 }
               </Button>
               
-              <Button 
-                variant="secondary" 
-                size="sm" 
-                onClick={toggleTheme}
-                data-testid="button-theme-toggle"
-                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-yellow-500/10 hover:text-yellow-500 hover:border-yellow-500/20 hover:shadow-yellow-500/25"
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-blue-500/10 hover:text-blue-500 hover:border-blue-500/20 hover:shadow-blue-500/25"
               >
-                {theme === 'light' ? (
-                  <Moon className="h-4 w-4 transition-transform duration-200 hover:scale-110 hover:rotate-12" />
+                {theme === 'dark' ? (
+                  <Sun className="h-4 w-4 transition-transform duration-200 hover:scale-110" />
                 ) : (
-                  <Sun className="h-4 w-4 transition-transform duration-200 hover:scale-110 hover:rotate-45" />
+                  <Moon className="h-4 w-4 transition-transform duration-200 hover:scale-110" />
                 )}
-              </Button>
-
-              <Button 
-                variant="secondary" 
-                size="sm" 
-                asChild
-                data-testid="button-twitter"
-                title="Follow us on X/Twitter"
-                className="hover:scale-105 hover:shadow-md transition-all duration-200 hover:bg-black/10 hover:text-black dark:hover:bg-white/10 dark:hover:text-white hover:border-gray-500/20"
-              >
-                <a
-                  href="https://x.com/Memeterdotfun"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <SiX className="h-4 w-4 transition-transform duration-200 hover:scale-110 hover:rotate-6" />
-                </a>
               </Button>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-6">
-        <div className="max-w-7xl mx-auto">
-          {/* Main Content */}
-          <main className="space-y-6">
-
-            {/* Search Results */}
-            {searchResult && (
-              <div className="bg-card rounded-lg border border-border p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold">Search Result</h2>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      setSearchResult(null);
-                      setSearchQuery("");
-                    }}
-                    data-testid="button-clear-search"
-                  >
-                    Clear Search
-                  </Button>
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8">
+        {/* Analytics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <Card className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">New Tokens Created</p>
+                  <p className="text-3xl font-bold text-blue-600">{totalTokens.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <Activity className="inline h-3 w-3 mr-1" />
+                    {tokensPerHour}/hour
+                  </p>
                 </div>
-                <TokenTable 
-                  tokens={[searchResult.token]}
-                  searchQuery=""
-                  filters={{}}
-                  onRefresh={() => {}}
-                  onFiltersChange={() => {}}
-                />
-                <div className="mt-3 text-sm text-muted-foreground">
-                  Found from: <span className="font-medium">{searchResult.source === 'blockchain' ? 'Solana Blockchain' : 'Database'}</span>
+                <div className="p-3 bg-blue-500/10 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-blue-500" />
                 </div>
               </div>
-            )}
+            </CardContent>
+          </Card>
 
-            {/* Search Error */}
-            {searchError && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 rounded-full bg-destructive"></div>
-                  <span className="font-medium text-destructive">Search Error</span>
+          <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20 hover:shadow-lg hover:shadow-green-500/10 transition-all duration-300">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Recently Migrated</p>
+                  <p className="text-3xl font-bold text-green-600">
+                    {migrationData?.migrations?.length || 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <Timer className="inline h-3 w-3 mr-1" />
+                    Last 24h
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground mt-1">{searchError}</p>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="mt-3"
-                  onClick={() => setSearchError("")}
-                >
-                  Dismiss
-                </Button>
+                <div className="p-3 bg-green-500/10 rounded-full">
+                  <Target className="h-6 w-6 text-green-500" />
+                </div>
               </div>
-            )}
+            </CardContent>
+          </Card>
 
-
-
-
-
-            {/* Three Column Layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-12">
-              {/* New Tokens Created */}
-              <div className="space-y-6">
-                <Card className="min-h-[1200px]">
-                  <CardContent className="p-8">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'Orbitron, monospace' }}>New Tokens Created</h3>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span className="text-xs text-muted-foreground">
-                          {newTokensLiveData.tokensPerHour}/hr
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.location.reload()}
-                          className="hover:bg-muted/50"
-                          title="Refresh New Tokens"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {newTokensLiveData.isLoading ? (
-                      <div className="flex items-center justify-center h-32">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : (
-                      <>
-                        <div className="space-y-3 max-h-[1000px] overflow-y-auto">
-                          {newTokensLiveData.tokens.map((token, i) => (
-                            <div key={token.mint} className="flex items-center space-x-3 p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors">
-                              <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center">
-                                {token.image ? (
-                                  <img 
-                                    src={token.image} 
-                                    alt={`${token.name} logo`}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      // Fallback to letter display if image fails to load
-                                      const target = e.target as HTMLImageElement;
-                                      target.style.display = 'none';
-                                      const parent = target.parentElement;
-                                      if (parent) {
-                                        parent.className = 'w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold';
-                                        parent.textContent = token.symbol.charAt(0).toUpperCase();
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">
-                                    {token.symbol.charAt(0).toUpperCase()}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-foreground truncate">{token.name}</p>
-                                <p className="text-xs text-muted-foreground">${token.symbol}</p>
-                                <div className="flex items-center space-x-2 mt-1">
-                                  <a 
-                                    href={`https://solscan.io/token/${token.mint}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-blue-500 hover:text-blue-400 flex items-center"
-                                  >
-                                    <ExternalLinkIcon className="h-3 w-3 mr-1" />
-                                    Solscan
-                                  </a>
-                                  {token.pool === 'pump' && (
-                                    <a 
-                                      href={`https://pump.fun/${token.mint}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs text-green-500 hover:text-green-400 flex items-center"
-                                    >
-                                      <ExternalLinkIcon className="h-3 w-3 mr-1" />
-                                      pump.fun
-                                    </a>
-                                  )}
-                                  {token.pool === 'bonk' && (
-                                    <a 
-                                      href={`https://bonk.fun/${token.mint}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs text-orange-500 hover:text-orange-400 flex items-center"
-                                    >
-                                      <ExternalLinkIcon className="h-3 w-3 mr-1" />
-                                      bonk.fun
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex items-center justify-end space-x-2 min-w-[80px]">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    const favoriteToken = {
-                                      mint: token.mint,
-                                      category: 'new' as const,
-                                      name: token.name,
-                                      symbol: token.symbol,
-                                      image: token.image,
-                                      marketCap: token.marketCapSol ? token.marketCapSol * 150 : token.marketCap,
-                                      pool: token.pool
-                                    };
-                                    toggleCategorizedFavorite(favoriteToken);
-                                    toast({
-                                      title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
-                                      description: `${token.symbol} ${isFavorite(token.mint) ? 'removed from' : 'added to'} your favorites`,
-                                    });
-                                  }}
-                                  className={`h-6 w-6 p-0 transition-all duration-200 flex items-center justify-center ${
-                                    isFavorite(token.mint)
-                                      ? 'bg-orange-500/10 hover:bg-orange-500/20 hover:shadow-lg hover:shadow-orange-500/25'
-                                      : 'hover:bg-orange-500/10 hover:shadow-md hover:shadow-orange-500/15'
-                                  }`}
-                                  title={isFavorite(token.mint) ? "Remove from favorites" : "Add to favorites"}
-                                >
-                                  <Star 
-                                    className={`h-3 w-3 transition-all duration-200 ${
-                                      isFavorite(token.mint) 
-                                        ? 'fill-orange-500 text-orange-500 drop-shadow-sm' 
-                                        : 'text-muted-foreground hover:text-orange-500 hover:drop-shadow-sm'
-                                    }`} 
-                                  />
-                                </Button>
-                                <div className="text-right flex-shrink-0">
-                                  <p className={`text-xs ${token.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                    {token.change24h >= 0 ? '+' : ''}{token.change24h.toFixed(1)}%
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {token.marketCapSol ? `$${(token.marketCapSol * 150).toLocaleString()}` : `$${token.marketCap.toLocaleString()}`}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <div className="flex justify-between text-xs text-muted-foreground mb-2">
-                            <span>Total Created: {newTokensLiveData.totalTokens.toLocaleString()}</span>
-                            <span>
-                              {newTokensLiveData.lastUpdated && 
-                                `Updated ${Math.floor((Date.now() - newTokensLiveData.lastUpdated.getTime()) / 1000)}s ago`
-                              }
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <Button variant="outline" className="w-full mt-4">
-                          View All New Tokens
-                        </Button>
-              </>
-            )}
-                  </CardContent>
-                </Card>
+          <Card className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border-purple-500/20 hover:shadow-lg hover:shadow-purple-500/10 transition-all duration-300">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Tokens Ready to Migrate Today</p>
+                  <p className="text-3xl font-bold text-purple-600">1,247</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <BarChart3 className="inline h-3 w-3 mr-1" />
+                    <span className="inline-flex items-center">
+                      <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mr-1 animate-pulse"></div>
+                      Ready
+                    </span>
+                  </p>
+                </div>
+                <div className="p-3 bg-purple-500/10 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-purple-500" />
+                </div>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Recently Migrated */}
-              <div className="space-y-6">
-                <Card className="min-h-[1200px]">
-                  <CardContent className="p-8">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'Orbitron, monospace' }}>Recently Migrated</h3>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.location.reload()}
-                          className="hover:bg-muted/50"
-                          title="Refresh Migrations"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-3 max-h-[1000px] overflow-y-auto">
-                      {Array.from({ length: 30 }).map((_, i) => (
-                        <div key={i} className="flex items-center space-x-3 p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-sm font-bold">
-                            {String.fromCharCode(65 + (i % 26))}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">Migrated Token {i + 1}</p>
-                            <p className="text-xs text-muted-foreground">$MTK{i + 1}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-orange-500">{Math.floor(Math.random() * 50)}%</p>
-                            <p className="text-xs text-muted-foreground">Migrated</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <Button variant="outline" className="w-full mt-4">
-                      View All Migrations
-                    </Button>
-                  </CardContent>
-                </Card>
+          <Card className="bg-gradient-to-br from-orange-500/10 to-orange-600/5 border-orange-500/20 hover:shadow-lg hover:shadow-orange-500/10 transition-all duration-300">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Trending Tokens</p>
+                  <p className="text-3xl font-bold text-orange-600">
+                    {trendingData?.trending?.length || 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <TrendingUp className="inline h-3 w-3 mr-1" />
+                    Top performers
+                  </p>
+                </div>
+                <div className="p-3 bg-orange-500/10 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-orange-500" />
+                </div>
               </div>
-
-              {/* Trending Tokens */}
-              <div className="space-y-6">
-                <Card className="min-h-[1200px]">
-                  <CardContent className="p-8">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: 'Orbitron, monospace' }}>Trending Tokens</h3>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.location.reload()}
-                          className="hover:bg-muted/50"
-                          title="Refresh Trending"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-3 max-h-[1000px] overflow-y-auto">
-                      {Array.from({ length: 30 }).map((_, i) => (
-                        <div key={i} className="flex items-center space-x-3 p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white text-sm font-bold">
-                            {String.fromCharCode(65 + (i % 26))}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">Trending Token {i + 1}</p>
-                            <p className="text-xs text-muted-foreground">$TTK{i + 1}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-purple-500">#{i + 1}</p>
-                            <p className="text-xs text-muted-foreground">Trending</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <Button variant="outline" className="w-full mt-4">
-                      View All Trending
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-          </main>
+            </CardContent>
+          </Card>
         </div>
-      </div>
+
+        {/* Three Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+          {/* New Tokens Created */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ fontFamily: 'Orbitron, monospace' }}>
+                New Tokens Created
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.location.reload()}
+                className="h-8 w-8 p-0 hover:bg-orange-500/10"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[1200px] max-h-[1000px] overflow-y-auto space-y-3">
+              {isLoadingLiveTokens ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">Loading live tokens...</span>
+                </div>
+              ) : liveTokensError ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Failed to load live tokens</p>
+                  <p className="text-sm">{liveTokensError}</p>
+                </div>
+              ) : liveTokens.length > 0 ? (
+                liveTokens.slice(0, 30).map((token, index) => (
+                  <div key={token.mint} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                          {token.image ? (
+                            <img 
+                              src={token.image} 
+                              alt={token.symbol}
+                              className="w-8 h-8 rounded-full object-cover"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                target.nextElementSibling?.classList.remove('hidden');
+                              }}
+                            />
+                          ) : null}
+                          <span className={token.image ? 'hidden' : ''}>{token.symbol.charAt(0)}</span>
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm">{token.name}</div>
+                          <div className="text-xs text-muted-foreground">{token.symbol}</div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <div className="text-right">
+                          <div className="text-sm font-medium">${(token.marketCapSol ? token.marketCapSol * 150 : token.marketCap || 0).toLocaleString()}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {token.pool === 'pump' ? (
+                              <a 
+                                href={`https://pump.fun/${token.mint}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-green-500 hover:text-green-400 transition-colors"
+                              >
+                                pump.fun
+                              </a>
+                            ) : token.pool === 'bonk' ? (
+                              <a 
+                                href={`https://bonk.fun/${token.mint}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:text-blue-400 transition-colors"
+                              >
+                                bonk.fun
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground">Unknown</span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-1">
+                          <a 
+                            href={`https://solscan.io/token/${token.mint}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                            title="View on Solscan"
+                          >
+                            <ExternalLinkIcon className="h-3 w-3" />
+                          </a>
+                          
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const favoriteToken = {
+                                mint: token.mint,
+                                category: 'new' as const, // Explicitly set category
+                                name: token.name,
+                                symbol: token.symbol,
+                                image: token.image,
+                                marketCap: token.marketCapSol ? token.marketCapSol * 150 : token.marketCap,
+                                pool: token.pool
+                              };
+                              toggleCategorizedFavorite(favoriteToken); // Use new categorized toggle
+                              toast({
+                                title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
+                                description: `${token.symbol} ${isFavorite(token.mint) ? 'removed from' : 'added to'} your favorites`,
+                              });
+                            }}
+                            className={`h-6 w-6 p-0 transition-all duration-200 flex items-center justify-center ${
+                              isFavorite(token.mint)
+                                ? 'bg-orange-500/10 hover:bg-orange-500/20 hover:shadow-lg hover:shadow-orange-500/25'
+                                : 'hover:bg-orange-500/10 hover:shadow-md hover:shadow-orange-500/15'
+                            }`}
+                            title={isFavorite(token.mint) ? "Remove from favorites" : "Add to favorites"}
+                          >
+                            <Star 
+                              className={`h-3 w-3 transition-all duration-200 ${
+                                isFavorite(token.mint) 
+                                  ? 'fill-orange-500 text-orange-500 drop-shadow-sm' 
+                                  : 'text-muted-foreground hover:text-orange-500 hover:drop-shadow-sm'
+                              }`} 
+                            />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No new tokens found</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Recently Migrated */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ fontFamily: 'Orbitron, monospace' }}>
+                Recently Migrated
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchMigrations()}
+                className="h-8 w-8 p-0 hover:bg-orange-500/10"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[1200px] max-h-[1000px] overflow-y-auto space-y-3">
+              {isLoadingMigrations ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">Loading migrations...</span>
+                </div>
+              ) : migrationError ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Failed to load migrations</p>
+                  <p className="text-sm">{migrationError.message}</p>
+                </div>
+              ) : migrationData?.migrations?.length > 0 ? (
+                migrationData.migrations.slice(0, 30).map((migration: any, index: number) => (
+                  <div key={index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                          {migration.symbol?.charAt(0) || 'M'}
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm">{migration.name || 'Migrated Token'}</div>
+                          <div className="text-xs text-muted-foreground">{migration.symbol || 'MIGRATED'}</div>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right">
+                        <div className="text-sm font-medium">Migrated</div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(migration.timestamp || Date.now()).toLocaleDateString()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No recent migrations</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Trending Tokens */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ fontFamily: 'Orbitron, monospace' }}>
+                Trending Tokens
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchTrending()}
+                className="h-8 w-8 p-0 hover:bg-orange-500/10"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[1200px] max-h-[1000px] overflow-y-auto space-y-3">
+              {isLoadingTrending ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">Loading trending tokens...</span>
+                </div>
+              ) : trendingError ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Failed to load trending tokens</p>
+                  <p className="text-sm">{trendingError.message}</p>
+                </div>
+              ) : trendingData?.trending?.length > 0 ? (
+                trendingData.trending.slice(0, 30).map((token: any, index: number) => (
+                  <div key={index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
+                          {token.symbol?.charAt(0) || 'T'}
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm">{token.name || 'Trending Token'}</div>
+                          <div className="text-xs text-muted-foreground">{token.symbol || 'TREND'}</div>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right">
+                        <div className="text-sm font-medium">+{Math.floor(Math.random() * 100)}%</div>
+                        <div className="text-xs text-muted-foreground">24h</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No trending tokens</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

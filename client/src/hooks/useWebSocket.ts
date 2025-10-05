@@ -24,10 +24,17 @@ export function useWebSocket(url: string) {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.hostname;
       
-      // For Replit environments and HTTPS, don't include the port
-      // For local development, include the port
+      // Check if we're on Vercel (vercel.app domain)
+      const isVercel = host.includes('.vercel.app') || host.includes('vercel.com');
+      
       let wsUrl: string;
-      if (window.location.protocol === "https:" || host.includes('.replit.dev')) {
+      if (isVercel) {
+        // Vercel doesn't support WebSockets, so we'll simulate a connection
+        console.log('Vercel environment detected - WebSocket not supported, using polling instead');
+        setConnectionStatus('disconnected');
+        setError('WebSocket not supported on Vercel. Using API polling for real-time data.');
+        return;
+      } else if (window.location.protocol === "https:" || host.includes('.replit.dev')) {
         wsUrl = `${protocol}//${host}${url}`;
       } else {
         const port = window.location.port || '5000';

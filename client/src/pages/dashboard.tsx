@@ -269,7 +269,7 @@ export default function Dashboard() {
       <header className="bg-black sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4" style={{ width: 'calc(25% - 2rem)', justifyContent: 'flex-start', paddingLeft: '0' }}>
+            <div className="flex items-center space-x-4">
               {/* Logo - Memeter logo SVG - Aligned with left side of blue rectangle */}
               <div className="relative w-32 h-32">
                 <img 
@@ -284,36 +284,6 @@ export default function Dashboard() {
                     Live
                   </span>
               </div>
-              
-              <Button 
-                variant="secondary" 
-                size="sm" 
-                asChild 
-                data-testid="button-favorites"
-                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-orange-500/10 hover:text-orange-500 hover:border-orange-500/20 hover:shadow-orange-500/25"
-              >
-                <Link href="/favorites">
-                  <Star className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
-                  Favorites
-                </Link>
-              </Button>
-              
-              <Button 
-                variant={connected ? "default" : "secondary"} 
-                size="sm" 
-                onClick={handleWalletConnect}
-                data-testid="button-wallet"
-                className={`hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/20 hover:shadow-green-500/25 ${connected ? 
-                  "bg-green-600 hover:bg-green-700 hover:scale-105 hover:shadow-lg transition-all duration-200" : 
-                  ""
-                }`}
-              >
-                <Wallet className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
-                {connected ? 
-                  `${publicKey?.slice(0, 4)}...${publicKey?.slice(-4)}` : 
-                  "Wallet"
-                }
-              </Button>
             </div>
             
             <div className="flex items-center space-x-4">

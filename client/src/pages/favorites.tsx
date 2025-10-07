@@ -7,7 +7,7 @@ import { useFavorites, type FavoriteToken } from "@/contexts/FavoritesContext";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { buildApiUrl } from "@/lib/api";
 import type { TokenWithMetrics } from "@/types";
 
@@ -47,9 +47,9 @@ export default function Favorites() {
   const TokenImage = ({ symbol, image }: { symbol?: string | null, image?: string | null }) => {
     const src = getProxiedImageUrl(image);
     return (
-      <Dialog>
-        <DialogTrigger asChild>
-          <div className={`relative w-10 h-10 flex-shrink-0 ${src ? 'cursor-zoom-in ring-2 ring-white/70 hover:ring-white transition-shadow rounded-full' : ''}`} title={src ? 'Click to enlarge' : undefined}>
+      <HoverCard openDelay={200} closeDelay={100}>
+        <HoverCardTrigger asChild>
+          <div className={`relative w-10 h-10 flex-shrink-0 ${src ? 'ring-2 ring-white/70 hover:ring-white transition-all cursor-pointer rounded-full' : ''}`} title={src ? 'Hover to preview' : undefined}>
             {src && (
               <img
                 src={src}
@@ -62,13 +62,13 @@ export default function Favorites() {
               {symbol?.charAt(0)?.toUpperCase() || 'T'}
             </div>
           </div>
-        </DialogTrigger>
-        <DialogContent className="sm:max-w-[520px] bg-background p-0 border-0 shadow-xl">
-          {src && (
-            <img src={src} alt={symbol || 'Token'} className="max-h-[80vh] w-auto rounded-xl mx-auto" />
-          )}
-        </DialogContent>
-      </Dialog>
+        </HoverCardTrigger>
+        {src && (
+          <HoverCardContent side="right" className="w-auto p-1 border-0 bg-card/95 shadow-2xl">
+            <img src={src} alt={symbol || 'Token'} className="w-48 h-48 rounded-lg object-cover" />
+          </HoverCardContent>
+        )}
+      </HoverCard>
     );
   };
 

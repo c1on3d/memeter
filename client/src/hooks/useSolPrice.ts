@@ -23,16 +23,17 @@ export function useSolPrice() {
         );
         const best = usdcPairs[0];
         const price = Number(best?.priceUsd || best?.priceNative || 0);
+        const priceChange24h = Number(best?.priceChange?.h24 || 0);
 
         if (price > 0) {
-          console.log('✅ SOL price from DexScreener:', price);
-          return price;
+          console.log('✅ SOL price from DexScreener:', price, `(${priceChange24h >= 0 ? '+' : ''}${priceChange24h.toFixed(2)}%)`);
+          return { price, priceChange24h };
         }
       } catch (error) {
         console.warn('DexScreener SOL price failed:', error);
       }
 
-      // Fallback: Jupiter price API
+      // Fallback: Jupiter price API (price only, no change %)
       try {
         const jupRes = await fetch('https://price.jup.ag/v6/price?ids=SOL');
         if (jupRes.ok) {
@@ -40,7 +41,7 @@ export function useSolPrice() {
           const price = Number(jupData?.data?.SOL?.price || 0);
           if (price > 0) {
             console.log('✅ SOL price from Jupiter:', price);
-            return price;
+            return { price, priceChange24h: 0 };
           }
         }
       } catch (error) {
@@ -48,7 +49,7 @@ export function useSolPrice() {
       }
 
       // No fallback - return 0 if all sources fail
-      return 0;
+      return { price: 0, priceChange24h: 0 };
     },
     refetchInterval: 30_000, // refresh every 30s
     staleTime: 20_000,

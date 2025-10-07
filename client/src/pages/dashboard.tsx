@@ -5,7 +5,7 @@ import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useSolPrice } from "@/hooks/useSolPrice";
 import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -41,7 +41,7 @@ const getProxiedImageUrl = (imageUrl: string | null | undefined, backendUrl: str
   return null;
 };
 
-// Token Image Component
+// Token Image Component - Hover to preview
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
   const backendUrl = buildApiUrl('');
   // Prefer backend-provided image; ignore uri if it's metadata
@@ -49,11 +49,11 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
   const imageSrc = backendUrl ? getProxiedImageUrl(rawImage, backendUrl) : null;
   
   return (
-    <Dialog>
-      <DialogTrigger asChild>
+    <HoverCard openDelay={200} closeDelay={100}>
+      <HoverCardTrigger asChild>
         <div
-          className={`relative w-10 h-10 flex-shrink-0 ${imageSrc ? 'cursor-zoom-in ring-2 ring-white/70 hover:ring-white transition-shadow rounded-full' : ''}`}
-          title={imageSrc ? 'Click to enlarge' : undefined}
+          className={`relative w-10 h-10 flex-shrink-0 ${imageSrc ? 'ring-2 ring-white/70 hover:ring-white transition-all cursor-pointer rounded-full' : ''}`}
+          title={imageSrc ? 'Hover to preview' : undefined}
         >
           {imageSrc && (
             <img 
@@ -72,21 +72,21 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
             {symbol?.charAt(0)?.toUpperCase() || 'T'}
           </div>
         </div>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[520px] bg-background p-0 border-0 shadow-xl">
-        {imageSrc && (
+      </HoverCardTrigger>
+      {imageSrc && (
+        <HoverCardContent side="left" align="start" className="w-auto p-1 border-0 bg-card/95 shadow-2xl">
           <img
             src={imageSrc}
             alt={symbol}
-            className="max-h-[80vh] w-auto rounded-xl mx-auto"
+            className="w-48 h-48 rounded-lg object-cover"
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               target.style.display = 'none';
             }}
           />
-        )}
-      </DialogContent>
-    </Dialog>
+        </HoverCardContent>
+      )}
+    </HoverCard>
   );
 }
 
@@ -113,6 +113,16 @@ export default function Dashboard() {
 
   // Helpers
   const isSolAddress = (s: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test((s || '').trim());
+
+  // Placeholder risk scoring until backend logic is provided
+  const computeRiskScore = (t: any): number => {
+    // TODO: replace with real risk model; for now return 0
+    return 0;
+  };
+  const handleSummarize = (t: any) => {
+    toast({ title: 'Summary', description: 'Token summary coming soon.' });
+    console.log('Summarize token:', t);
+  };
 
   // Wallet connection
   const { connected, publicKey, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
@@ -148,32 +158,48 @@ export default function Dashboard() {
     refetchInterval: 15000, // Refetch every 15 seconds
   });
 
-  // Fetch DexScreener data with backend-first, public-API fallback
+  // Fetch recent migrations
+  const { data: migrationsData, refetch: refetchMigrations } = useQuery({
+    queryKey: ['migrations'],
+    queryFn: async () => {
+      const response = await fetch(buildApiUrl('/api/migrations/recent'));
+      if (!response.ok) throw new Error('Failed to fetch migrations');
+      const data = await response.json();
+      console.log('✅ Migrations received:', data.count, 'migrations');
+      return data;
+    },
+    refetchInterval: 15000,
+  });
+
+  // Fetch DexScreener data (public API for reliability)
   const { data: dexScreenerData, refetch: refetchDexScreener } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
-      // Try backend first
-      try {
-        const res = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
-        if (res.ok) {
-          const data = await res.json();
-          if ((Array.isArray(data?.tokens) && data.tokens.length > 0) || (Array.isArray(data?.pairs) && data.pairs.length > 0)) {
-            return data;
-          }
-        }
-      } catch {}
-
-      // Fallback to DexScreener public API
-      const ds = await fetch('https://api.dexscreener.com/latest/dex/pairs/solana');
+      const ds = await fetch('https://api.dexscreener.com/latest/dex/tokens/solana');
       if (!ds.ok) throw new Error('Failed to fetch DexScreener data');
-      const fallback = await ds.json();
-      return { pairs: fallback?.pairs || [] };
+      const json = await ds.json();
+      const pairs = Array.isArray(json?.pairs) ? json.pairs : [];
+
+      // Normalize: ensure priceChange.h6 exists; fallback to h24 or h1 or 0
+      const normalized = pairs
+        .map((p: any) => {
+          const h6 = (p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? p?.priceChange?.h1 ?? 0);
+          return { 
+            ...p, 
+            priceChange: { ...(p?.priceChange || {}), h6 }
+          };
+        })
+        // Keep entries that have basic fields
+        .filter((p: any) => !!p?.pairAddress && !!p?.baseToken?.symbol);
+
+      console.log('✅ DexScreener public pairs:', { total: pairs.length, normalized: normalized.length });
+      return { pairs: normalized };
     },
     refetchInterval: 20000, // Refetch every 20 seconds
   });
 
   // Calculate stats from fetched data - handle the actual backend response structure
-  const rawNewTokens = newTokensData?.tokens || [];
+  const rawNewTokens = Array.isArray((newTokensData as any)?.tokens) ? (newTokensData as any).tokens : [];
   // Sort tokens by timestamp (newest first)
   const newTokens = [...rawNewTokens].sort((a: any, b: any) => {
     const dateA = new Date(a.timestamp || 0).getTime();
@@ -181,20 +207,40 @@ export default function Dashboard() {
     return dateB - dateA; // Descending order (newest first)
   });
   
-  const allTokens = allTokensData?.tokens || (Array.isArray(allTokensData) ? allTokensData : []);
-  const { data: solanaPrice = 0 } = useSolPrice();
+  const allTokens = Array.isArray((allTokensData as any)?.tokens) ? (allTokensData as any).tokens : (Array.isArray(allTokensData) ? (allTokensData as any) : []);
+  const { data: solPriceData } = useSolPrice();
+  const solanaPrice = solPriceData?.price || 0;
+  const solanaPriceChange24h = solPriceData?.priceChange24h || 0;
   const totalTokens = newTokensData?.count || newTokens.length || 0;
   const tokensPerHour = Math.floor(totalTokens / 24) || 0;
-  const totalMigrations = 0; // Backend doesn't have migrations endpoint yet
-  const readyToMigrate = 0;
+  const migrations = migrationsData?.migrations || [];
+  const totalMigrations = migrations.length;
+  
   // Build trending list using 6h performance from Solana pairs
-  const solanaPairs = Array.isArray(dexScreenerData?.pairs)
-    ? dexScreenerData.pairs
-    : (Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tokens : []);
+  const solanaPairs = Array.isArray((dexScreenerData as any)?.pairs)
+    ? (dexScreenerData as any).pairs
+    : [];
   const trendingPairs = [...solanaPairs]
     .sort((a: any, b: any) => ((b?.priceChange?.h6 ?? -Infinity) - (a?.priceChange?.h6 ?? -Infinity)))
     .slice(0, 30);
   const trendingCount = trendingPairs.length;
+  
+  // Calculate Solana Volume (24h total from trending pairs)
+  const solanaVolume24h = solanaPairs.reduce((sum: number, p: any) => sum + (p?.volume?.h24 || 0), 0);
+  
+  // Migration Threshold (standard Raydium threshold in SOL)
+  const migrationThreshold = 412; // SOL
+  
+  // Market Sentiment (% of trending tokens with positive 6h change)
+  const positiveCount = trendingPairs.filter((p: any) => (p?.priceChange?.h6 || 0) > 0).length;
+  const marketSentiment = trendingPairs.length > 0 ? Math.round((positiveCount / trendingPairs.length) * 100) : 0;
+
+  // Sentiment color classes (dynamic)
+  const sentimentStyles = marketSentiment >= 60
+    ? { card: 'from-green-500/10 to-green-600/5 border-green-500/20', icon: 'text-green-500', value: 'text-green-600' }
+    : marketSentiment >= 40
+      ? { card: 'from-yellow-500/10 to-yellow-600/5 border-yellow-500/20', icon: 'text-yellow-500', value: 'text-yellow-600' }
+      : { card: 'from-red-500/10 to-red-600/5 border-red-500/20', icon: 'text-red-500', value: 'text-red-600' };
 
   // Debug logging
   useEffect(() => {
@@ -204,8 +250,10 @@ export default function Dashboard() {
       newTokensCount: newTokens.length,
       totalTokens,
       hasData: !!newTokensData,
+      migrations: migrations.length,
+      trendingPairs: trendingPairs.length,
     });
-  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData]);
+  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData, migrations.length, trendingPairs.length]);
 
   // Debounced search for SPL tokens (by address or symbol/name)
   useEffect(() => {
@@ -375,7 +423,7 @@ export default function Dashboard() {
                                 )}
                                 <div className="absolute inset-0 w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-[10px] font-bold">
                                   {(pair?.baseToken?.symbol || 'T').slice(0, 2).toUpperCase()}
-                                </div>
+                  </div>
                               </div>
                               <div className="flex flex-col">
                                 <span className="text-sm font-medium">
@@ -451,8 +499,8 @@ export default function Dashboard() {
                   <span className="text-sm font-medium text-foreground">
                     ${solanaPrice.toFixed(2)}
                   </span>
-                  <span className="text-xs font-medium text-green-500">
-                    +0.00%
+                  <span className={`text-xs font-medium ${solanaPriceChange24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {solanaPriceChange24h >= 0 ? '+' : ''}{solanaPriceChange24h.toFixed(2)}%
                     </span>
                 </div>
               </div>
@@ -511,19 +559,19 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20 hover:shadow-lg hover:shadow-green-500/10 transition-all duration-300">
+          <Card className="bg-gradient-to-br from-orange-500/10 to-orange-600/5 border-orange-500/20 hover:shadow-lg hover:shadow-orange-500/10 transition-all duration-300">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Recently Migrated</p>
-                  <p className="text-3xl font-bold text-green-600">{totalMigrations}</p>
+                  <p className="text-sm font-medium text-muted-foreground">Solana Volume</p>
+                  <p className="text-3xl font-bold text-orange-600">${(solanaVolume24h / 1_000_000).toFixed(1)}M</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     <Timer className="inline h-3 w-3 mr-1" />
-                    Last 24h
+                    24h trading
                   </p>
                 </div>
-                <div className="p-3 bg-green-500/10 rounded-full">
-                  <Target className="h-6 w-6 text-green-500" />
+                <div className="p-3 bg-orange-500/10 rounded-full">
+                  <Activity className="h-6 w-6 text-orange-500" />
                 </div>
               </div>
             </CardContent>
@@ -533,35 +581,35 @@ export default function Dashboard() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Ready to Migrate</p>
-                  <p className="text-3xl font-bold text-purple-600">{readyToMigrate}</p>
+                  <p className="text-sm font-medium text-muted-foreground">Migration Threshold</p>
+                  <p className="text-3xl font-bold text-purple-600">${((migrationThreshold * solanaPrice) / 1000).toFixed(1)}K</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     <span className="inline-flex items-center">
                       <span className="w-1.5 h-1.5 bg-purple-500 rounded-full mr-1 animate-pulse block"></span>
-                      Ready
+                      {migrationThreshold} SOL threshold
                     </span>
                   </p>
                 </div>
                 <div className="p-3 bg-purple-500/10 rounded-full">
-                  <TrendingUp className="h-6 w-6 text-purple-500" />
+                  <Target className="h-6 w-6 text-purple-500" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-orange-500/10 to-orange-600/5 border-orange-500/20 hover:shadow-lg hover:shadow-orange-500/10 transition-all duration-300">
+          <Card className={`bg-gradient-to-br ${sentimentStyles.card} hover:shadow-lg transition-all duration-300`}>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Trending Tokens</p>
-                  <p className="text-3xl font-bold text-orange-600">{trendingCount}</p>
+                  <p className="text-sm font-medium text-muted-foreground">Market Sentiment</p>
+                  <p className={`text-3xl font-bold ${sentimentStyles.value}`}>{marketSentiment}%</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    <TrendingUp className="inline h-3 w-3 mr-1" />
-                    Top performers
+                    <TrendingUp className={`inline h-3 w-3 mr-1 ${sentimentStyles.icon}`} />
+                    Positive (6h)
                   </p>
                 </div>
-                <div className="p-3 bg-orange-500/10 rounded-full">
-                  <TrendingUp className="h-6 w-6 text-orange-500" />
+                <div className="p-3 rounded-full">
+                  <TrendingUp className={`h-6 w-6 ${sentimentStyles.icon}`} />
                 </div>
               </div>
             </CardContent>
@@ -634,23 +682,33 @@ export default function Dashboard() {
                               >
                                 <Copy className="h-3.5 w-3.5" />
                               </button>
-                            </div>
+                        </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</span>
                               {launchpadUrl && (
-                                <a 
-                                  href={launchpadUrl}
+                                <>
+                                  <a 
+                                    href={launchpadUrl}
                                 target="_blank" 
                                 rel="noopener noreferrer"
-                                  className={`text-xs px-1.5 py-0.5 rounded hover:underline ${
-                                    token.pool === 'pump' 
-                                      ? 'text-green-500' 
-                                      : 'text-blue-500'
-                                  }`}
-                                  title={`View on ${token.pool === 'pump' ? 'Pump.fun' : 'Bonk.fun'}`}
-                                >
-                                  {token.pool === 'pump' ? 'pump.fun' : 'bonk.fun'}
-                                </a>
+                                    className={`text-xs px-2 py-0.5 rounded border ${
+                                      token.pool === 'pump' 
+                                        ? 'text-green-500 border-green-500 hover:bg-green-500/10' 
+                                        : 'text-blue-500 border-blue-500 hover:bg-blue-500/10'
+                                    }`}
+                                    title={`View on ${token.pool === 'pump' ? 'Pump.fun' : 'Bonk.fun'}`}
+                                  >
+                                    {token.pool === 'pump' ? 'pump.fun' : 'bonk.fun'}
+                                  </a>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-5 px-2 text-purple-500 border-purple-500 hover:bg-purple-500/10"
+                                    onClick={(e) => { e.preventDefault(); handleSummarize(token); }}
+                                  >
+                                    Analyze
+                                  </Button>
+                                </>
                               )}
                             </div>
                           </div>
@@ -660,6 +718,7 @@ export default function Dashboard() {
                           <div className="text-right">
                             <div className="text-sm font-medium">${Number(marketCapUSD).toLocaleString()}</div>
                             <div className="text-xs text-blue-500">{token.marketCapSol?.toFixed(2)} SOL</div>
+                            <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(token)}/100</div>
                           </div>
                           
                           {/* Links */}
@@ -698,10 +757,10 @@ export default function Dashboard() {
                             >
                               <Star className={`h-3 w-3 ${isFavorite(token.mint) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
                           </Button>
-                          </div>
                         </div>
                       </div>
                     </div>
+                  </div>
                   );
                 })
               ) : (
@@ -726,9 +785,7 @@ export default function Dashboard() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  // TODO: once wired, refetch migrations query here
-                }}
+                onClick={() => refetchMigrations()}
                 className="h-8 w-8 p-0 hover:bg-orange-500/10"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -736,10 +793,72 @@ export default function Dashboard() {
             </div>
             
             <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
+              {migrations.length > 0 ? (
+                migrations.slice(0, 30).map((migration: any, index: number) => {
+                  const marketCapUSD = migration.marketCapAtMigration ? (migration.marketCapAtMigration * solanaPrice).toFixed(2) : '0';
+                  
+                  return (
+                    <div key={migration.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                          <TokenImage mint={migration.mint} symbol={migration.symbol} uri={null} directImage={migration.image} />
+                          
+                        <div>
+                            <div className="font-medium text-sm">{migration.name || migration.symbol || 'Unknown'}</div>
+                            <div className="text-xs text-muted-foreground">{migration.symbol || 'N/A'}</div>
+                        </div>
+                      </div>
+                      
+                        <div className="flex items-center space-x-2">
+                      <div className="text-right">
+                            <div className="text-sm font-medium text-green-500">Migrated</div>
+                            <div className="text-xs text-muted-foreground">${Number(marketCapUSD).toLocaleString()}</div>
+                        </div>
+                      
+                          <div className="flex items-center space-x-1">
+                            <a 
+                              href={`https://solscan.io/token/${migration.mint}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-blue-500 transition-colors"
+                              title="View on Solscan"
+                            >
+                              <ExternalLinkIcon className="h-3.5 w-3.5" />
+                            </a>
+                            
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                toggleCategorizedFavorite({
+                                  mint: migration.mint,
+                                  category: 'migrated',
+                                  name: migration.name,
+                                  symbol: migration.symbol,
+                                  marketCap: Number(marketCapUSD),
+                                  image: migration.image,
+                                });
+                                toast({
+                                  title: isFavorite(migration.mint) ? "Removed from Favorites" : "Added to Favorites",
+                                  description: `${migration.symbol} has been ${isFavorite(migration.mint) ? 'removed from' : 'added to'} your favorites`,
+                                });
+                              }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Star className={`h-3 w-3 ${isFavorite(migration.mint) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
+                            </Button>
+                      </div>
+                    </div>
+                  </div>
+                    </div>
+                  );
+                })
+              ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <p>No recent migrations</p>
-                <p className="text-xs mt-2">Migrated tokens will appear here</p>
+                  <p className="text-xs mt-2">Migrated tokens will appear here</p>
                 </div>
+              )}
             </div>
           </div>
 
@@ -767,9 +886,9 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
                           {/* Token Image */}
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <div className={`relative w-10 h-10 ${pair.info?.imageUrl ? 'cursor-zoom-in ring-2 ring-white/70 hover:ring-white transition-shadow rounded-full' : ''}`} title={pair.info?.imageUrl ? 'Click to enlarge' : undefined}>
+                          <HoverCard openDelay={200} closeDelay={100}>
+                            <HoverCardTrigger asChild>
+                              <div className={`relative w-10 h-10 ${pair.info?.imageUrl ? 'ring-2 ring-white/70 hover:ring-white transition-all cursor-pointer rounded-full' : ''}`} title={pair.info?.imageUrl ? 'Hover to preview' : undefined}>
                                 {pair.info?.imageUrl && (
                                   <img 
                                     src={pair.info.imageUrl}
@@ -783,41 +902,50 @@ export default function Dashboard() {
                                 )}
                                 <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
                                   {pair.baseToken?.symbol?.charAt(0)?.toUpperCase() || 'T'}
-                                </div>
+                        </div>
                               </div>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[520px] bg-background p-0 border-0 shadow-xl">
-                              {pair.info?.imageUrl && (
+                            </HoverCardTrigger>
+                            {pair.info?.imageUrl && (
+                              <HoverCardContent side="right" className="w-auto p-1 border-0 bg-card/95 shadow-2xl">
                                 <img
                                   src={pair.info.imageUrl}
                                   alt={pair.baseToken?.symbol}
-                                  className="max-h-[80vh] w-auto rounded-xl mx-auto"
+                                  className="w-48 h-48 rounded-lg object-cover"
                                   onError={(e) => {
                                     const target = e.target as HTMLImageElement;
                                     target.style.display = 'none';
                                   }}
                                 />
-                              )}
-                            </DialogContent>
-                          </Dialog>
+                              </HoverCardContent>
+                            )}
+                          </HoverCard>
                           
-                          <div>
+                        <div>
                             <div className="font-medium text-sm">{pair.baseToken?.name || pair.baseToken?.symbol || 'Unknown'}</div>
                             <div className="text-xs text-muted-foreground">{pair.baseToken?.symbol || 'N/A'}</div>
-                          </div>
                         </div>
-                        
+                      </div>
+                      
                         <div className="flex items-center space-x-2">
-                          <div className="text-right">
+                      <div className="text-right">
                             <div className={`text-sm font-medium ${
                               (pair.priceChange?.h6 || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                             }`}>
                               {(pair.priceChange?.h6 || 0) >= 0 ? '+' : ''}{(pair.priceChange?.h6 || 0).toFixed(2)}% (6h)
-                            </div>
+                      </div>
                             <div className="text-xs text-muted-foreground">
                               ${(pair.volume?.h6 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol (6h)
-                            </div>
-                          </div>
+                    </div>
+                            <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(pair)}/100</div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 mt-1"
+                              onClick={() => handleSummarize(pair)}
+                            >
+                              Summarize
+                            </Button>
+                  </div>
                           
                           {/* Links */}
                           <div className="flex items-center space-x-1">

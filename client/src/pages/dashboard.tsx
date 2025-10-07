@@ -11,27 +11,19 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - Uses working IPFS gateways only
+// Token Image Component - Uses backend proxy to avoid CORS
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  const [currentGatewayIndex, setCurrentGatewayIndex] = useState(0);
-  
-  // List of WORKING IPFS gateways (tested and verified)
-  const ipfsGateways = [
-    'https://dweb.link/ipfs/',
-    'https://ipfs.io/ipfs/',
-    'https://gateway.pinata.cloud/ipfs/',
-    'https://cloudflare-ipfs.com/ipfs/',
-  ];
-  
   const getImageSrc = () => {
-    // Use direct image if provided
-    if (directImage) return directImage;
+    // Use direct image if provided (no proxy needed)
+    if (directImage && !directImage.includes('ipfs')) {
+      return directImage;
+    }
     
-    // Extract IPFS hash from URI
-    if (uri && uri.includes('/ipfs/')) {
-      const ipfsHash = uri.split('/ipfs/')[1];
-      // Try gateways in order
-      return `${ipfsGateways[currentGatewayIndex]}${ipfsHash}`;
+    // For IPFS URIs, proxy through backend to avoid CORS
+    const imageUrl = directImage || uri;
+    if (imageUrl) {
+      // Use backend proxy to fetch image (bypasses CORS)
+      return `${buildApiUrl('/api/image-proxy')}?url=${encodeURIComponent(imageUrl)}`;
     }
     
     return null;
@@ -39,24 +31,18 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
   
   const imageSrc = getImageSrc();
   
-  const handleImageError = () => {
-    // Try next gateway
-    if (currentGatewayIndex < ipfsGateways.length - 1) {
-      setCurrentGatewayIndex(currentGatewayIndex + 1);
-    }
-    // If all gateways failed, image will be hidden by onError
-  };
-  
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
       {imageSrc && (
         <img 
-          key={`${mint}-${currentGatewayIndex}`}
           src={imageSrc}
           alt={symbol}
           className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
           loading="lazy"
-          onError={handleImageError}
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.style.display = 'none';
+          }}
         />
       )}
       <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">

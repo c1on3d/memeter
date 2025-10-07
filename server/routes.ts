@@ -405,6 +405,70 @@ export function setupRoutes(app: Express): Server {
     }
   });
 
+  // New endpoint: /api/new - Returns tokens with images already fetched (no CORS!)
+  app.get('/api/new', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      const tokens = pumpPortalWebSocketService.getNewTokens(limit);
+      
+      res.json({
+        message: "Recent token data from WebSocket",
+        tokens: tokens.map(token => ({
+          timestamp: token.createdAt,
+          source: 'pumpportal',
+          mint: token.mint,
+          name: token.name,
+          symbol: token.symbol,
+          marketCapSol: token.marketCapSol,
+          image: token.image, // Images already fetched by backend!
+          uri: token.uri,
+          pool: token.pool || 'pump',
+          creator: token.creator,
+        })),
+        count: pumpPortalWebSocketService.getStats().totalTokens
+      });
+    } catch (error) {
+      console.error('Error in /api/new endpoint:', error);
+      res.status(500).json({ error: 'Failed to fetch new tokens' });
+    }
+  });
+
+  // Image proxy endpoint - Fetches images server-side to avoid CORS
+  app.get('/api/image-proxy', async (req, res) => {
+    try {
+      const imageUrl = req.query.url as string;
+      
+      if (!imageUrl) {
+        return res.status(400).json({ error: 'URL parameter required' });
+      }
+
+      // Fetch image from IPFS/metadata server
+      const response = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({ error: 'Failed to fetch image' });
+      }
+
+      // Get the image data
+      const imageBuffer = await response.arrayBuffer();
+      const contentType = response.headers.get('content-type') || 'image/png';
+
+      // Set CORS headers to allow frontend access
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+      
+      res.send(Buffer.from(imageBuffer));
+    } catch (error) {
+      console.error('Error proxying image:', error);
+      res.status(500).json({ error: 'Failed to proxy image' });
+    }
+  });
+
   // Debug endpoint to check WebSocket service status
   app.get('/api/debug/pumpportal', (req, res) => {
     try {

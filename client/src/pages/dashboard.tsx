@@ -11,37 +11,9 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - Displays IPFS images with fast gateway
+// Token Image Component - with IPFS gateway fallbacks
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  // Get image URL - use direct image or convert IPFS URI to fast gateway
-  const getImageUrl = () => {
-    if (directImage) {
-      let img = directImage;
-      if (img.includes('ipfs.io/ipfs/')) {
-        return img.replace('ipfs.io', 'cf-ipfs.com');
-      }
-      return img;
-    }
-    
-    if (uri) {
-      // URI is often the direct IPFS image link
-      let img = uri;
-      // Use faster CloudFlare IPFS gateway
-      if (img.includes('ipfs.io/ipfs/')) {
-        return img.replace('ipfs.io', 'cf-ipfs.com');
-      } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
-        return img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
-      } else if (img.startsWith('ipfs://')) {
-        const hash = img.replace('ipfs://', '');
-        return `https://cf-ipfs.com/ipfs/${hash}`;
-      }
-      return img;
-    }
-    
-    return null;
-  };
-  
-  const imageUrl = getImageUrl();
+  const imageUrl = directImage || uri; // Fallback to URI if no direct image
   
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
@@ -53,7 +25,17 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
           loading="lazy"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
+            // Try alternate IPFS gateways if primary fails
+            if (target.src.includes('ipfs.io')) {
+              target.src = target.src.replace('ipfs.io', 'dweb.link');
+            } else if (target.src.includes('dweb.link')) {
+              target.src = target.src.replace('dweb.link', 'cf-ipfs.com');
+            } else if (target.src.includes('cf-ipfs.com')) {
+              target.src = target.src.replace('cf-ipfs.com', 'gateway.pinata.cloud');
+            } else {
+              // All gateways failed, hide image
+              target.style.display = 'none';
+            }
           }}
         />
       )}

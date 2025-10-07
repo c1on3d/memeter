@@ -1,39 +1,118 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { MigrationFeed } from "@/components/MigrationFeed";
-import { TokenTable } from "@/components/TokenTable";
+import { useQuery } from "@tanstack/react-query";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
-import { useNewTokensLive } from "@/hooks/useNewTokensLive";
-import { Search, Heart, Settings, Wallet, ExternalLink, TrendingUp, BarChart3, Loader2, X, Activity, Timer, Target, TrendingDown, RefreshCw, ExternalLinkIcon, Star } from "lucide-react";
-import { SiX, SiSolana } from "react-icons/si";
+import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Pagination } from "@/components/Pagination";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
+// Token Image Component - Handles IPFS and metadata URLs
+function TokenImage({ uri, symbol, directImage }: { uri?: string | null, symbol: string, directImage?: string | null }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    // If we already have a direct image, use it immediately
+    if (directImage) {
+      let img = directImage;
+      // Use faster IPFS gateway
+      if (img.includes('ipfs.io/ipfs/')) {
+        img = img.replace('ipfs.io', 'cf-ipfs.com');
+      } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
+        img = img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
+      }
+      setImageUrl(img);
+      setIsLoading(false);
+      return;
+    }
+    
+    if (!uri) {
+      setIsLoading(false);
+      return;
+    }
+    
+    const fetchMetadata = async () => {
+      try {
+        // Try multiple CORS proxies as fallback
+        const proxies = [
+          (url: string) => url, // Try direct first (might work for some)
+          (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+          (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        ];
+        
+        for (const proxyFn of proxies) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+            
+            const proxyUrl = proxyFn(uri);
+            const response = await fetch(proxyUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+              const metadata = await response.json();
+              if (metadata.image) {
+                let img = metadata.image;
+                // Use fastest IPFS gateway
+                if (img.includes('ipfs.io/ipfs/')) {
+                  img = img.replace('ipfs.io', 'cf-ipfs.com');
+                } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
+                  img = img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
+                } else if (img.startsWith('ipfs://')) {
+                  const hash = img.replace('ipfs://', '');
+                  img = `https://cf-ipfs.com/ipfs/${hash}`;
+                }
+                setImageUrl(img);
+                setIsLoading(false);
+                return; // Success, exit
+              }
+            }
+          } catch (error) {
+            // Try next proxy
+            continue;
+          }
+        }
+        setIsLoading(false);
+      } catch (error) {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchMetadata();
+  }, [uri, symbol, directImage]);
+  
+  return (
+    <div className="relative w-10 h-10">
+      {imageUrl && (
+        <img 
+          src={imageUrl}
+          alt={symbol}
+          className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.style.display = 'none';
+          }}
+        />
+      )}
+      <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+        {isLoading ? (
+          <div className="animate-pulse">●</div>
+        ) : (
+          symbol?.charAt(0)?.toUpperCase() || 'T'
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResult, setSearchResult] = useState<any>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [riskAnalysis, setRiskAnalysis] = useState<Record<string, any>>({});
-  const [analyzingTokens, setAnalyzingTokens] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState({
-    riskLevel: "",
-    timeRange: "",
-    minMarketCap: "",
-    maxMarketCap: "",
-    sortBy: "marketCap",
-    sortOrder: "desc" as "asc" | "desc",
-  });
-  const [currentPage, setCurrentPage] = useState(1);
-  const tokensPerPage = 20;
 
   // Authentication check - redirect to landing if not authenticated
   useEffect(() => {
@@ -46,198 +125,90 @@ export default function Dashboard() {
 
   const { theme } = useTheme();
   const { toast } = useToast();
-  const { toggleFavorite, isFavorite, toggleCategorizedFavorite } = useFavorites();
-
-  // Get live new tokens data
-  const { 
-    tokens: liveTokens, 
-    totalTokens, 
-    tokensPerHour, 
-    isLoading: isLoadingLiveTokens, 
-    error: liveTokensError,
-    lastUpdated 
-  } = useNewTokensLive();
+  const { toggleCategorizedFavorite, isFavorite } = useFavorites();
 
   // Wallet connection
   const { connected, publicKey, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
 
-  // Solana network stats
-  const { data: solanaNetworkStats } = useQuery({
-    queryKey: ['solanaNetworkStats'],
+  // Fetch new tokens from backend
+  const { data: newTokensData, refetch: refetchNewTokens, isLoading: isLoadingNewTokens, error: newTokensError } = useQuery({
+    queryKey: ['newTokens'],
     queryFn: async () => {
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.SOLANA_STATS));
+      console.log('🔵 Fetching new tokens from:', buildApiUrl(API_ENDPOINTS.NEW_TOKENS));
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.NEW_TOKENS));
       if (!response.ok) {
-        throw new Error('Failed to fetch network stats');
+        console.error('❌ Failed to fetch new tokens:', response.status, response.statusText);
+        throw new Error('Failed to fetch new tokens');
       }
-      return response.json();
+      const data = await response.json();
+      console.log('✅ New tokens received:', data.count, 'tokens, showing:', data.tokens?.length);
+      console.log('📊 First token:', data.tokens?.[0]);
+      return data; // Returns { message, tokens: [...], count }
     },
-    refetchInterval: 30000, // Refetch every 30 seconds
-    staleTime: 25000,
+    refetchInterval: 10000, // Refetch every 10 seconds
     retry: 3,
-    retryDelay: 1000,
   });
 
-  // Migration feed data
-  const { 
-    data: migrationData, 
-    isLoading: isLoadingMigrations, 
-    error: migrationError,
-    refetch: refetchMigrations 
-  } = useQuery({
-    queryKey: ['migrationFeed'],
+  // Fetch all tokens
+  const { data: allTokensData, refetch: refetchTokens } = useQuery({
+    queryKey: ['allTokens'],
     queryFn: async () => {
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.MIGRATIONS));
-      if (!response.ok) {
-        throw new Error('Failed to fetch migration data');
-      }
-      return response.json();
-    },
-    refetchInterval: 10000, // Refetch every 10 seconds for real-time updates
-    staleTime: 5000,
-    retry: 3,
-    retryDelay: 2000,
-  });
-
-  // Trending tokens data
-  const { 
-    data: trendingData, 
-    isLoading: isLoadingTrending, 
-    error: trendingError,
-    refetch: refetchTrending 
-  } = useQuery({
-    queryKey: ['trendingTokens'],
-    queryFn: async () => {
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.TRENDING_TOKENS));
-      if (!response.ok) {
-        throw new Error('Failed to fetch trending data');
-      }
-      return response.json();
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.TOKENS));
+      if (!response.ok) throw new Error('Failed to fetch tokens');
+      const data = await response.json();
+      return data;
     },
     refetchInterval: 15000, // Refetch every 15 seconds
-    staleTime: 10000,
-    retry: 3,
-    retryDelay: 2000,
   });
 
-  // All tokens data for search and filtering
-  const { 
-    data: allTokensData, 
-    isLoading: isLoadingAllTokens, 
-    error: allTokensError,
-    refetch: refetchTokens 
-  } = useQuery({
-    queryKey: ['allTokens', filters],
+  // Fetch DexScreener latest data
+  const { data: dexScreenerData, refetch: refetchDexScreener } = useQuery({
+    queryKey: ['dexScreener'],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filters.riskLevel) params.append('riskLevel', filters.riskLevel);
-      if (filters.timeRange) params.append('timeRange', filters.timeRange);
-      if (filters.minMarketCap) params.append('minMarketCap', filters.minMarketCap);
-      if (filters.maxMarketCap) params.append('maxMarketCap', filters.maxMarketCap);
-      if (filters.sortBy) params.append('sortBy', filters.sortBy);
-      if (filters.sortOrder) params.append('sortOrder', filters.sortOrder);
-      
-      const response = await fetch(buildApiUrl(`${API_ENDPOINTS.TOKENS}?${params.toString()}`));
-      if (!response.ok) {
-        throw new Error('Failed to fetch tokens');
-      }
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.DEXSCREENER_LATEST));
+      if (!response.ok) throw new Error('Failed to fetch DexScreener data');
       return response.json();
     },
-    refetchInterval: 3000, // More frequent updates for real-time feel
+    refetchInterval: 20000, // Refetch every 20 seconds
   });
 
-  // Remove WebSocket connection - we're using API polling instead
-  // const { connectionStatus, lastMessage } = useWebSocket("/ws");
-
-  // Remove WebSocket message handling - using API polling instead
-  // useEffect(() => {
-  //   if (lastMessage?.type === 'migration' || 
-  //       lastMessage?.type === 'tokenUpdate' || 
-  //       lastMessage?.type === 'newToken') {
-  //     refetchTokens();
-  //   }
-  // }, [lastMessage, refetchTokens]);
-
-  const handleSearch = async (value: string) => {
-    setSearchQuery(value);
-    setSearchResult(null);
-    setSearchError("");
-    
-    // If search query is empty, clear search results
-    if (!value.trim()) {
-      return;
-    }
-    
-    const searchTerm = value.trim();
-    
-    // Check if this looks like a Solana address (32-44 characters, base58)
-    const isSolanaAddress = searchTerm.length >= 32 && searchTerm.length <= 44 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(searchTerm);
-    
-    if (isSolanaAddress) {
-      // Search for SPL token by address
-      setIsSearching(true);
-      try {
-        const response = await fetch(buildApiUrl(`${API_ENDPOINTS.SEARCH_TOKENS}/${encodeURIComponent(searchTerm)}`));
-        if (response.ok) {
-          const data = await response.json();
-          setSearchResult(data);
-          const sourceText = data.source === 'database' ? 'Database' : 
-                           data.source === 'blockchain' ? 'Blockchain Analysis' : 
-                           data.source === 'pump_portal' ? 'Pump.fun Live' : 'Live Analysis';
-          toast({
-            title: "SPL Token Found",
-            description: `Found ${data.token.name} (${data.token.symbol}) - ${sourceText}`,
-          });
-        } else {
-          const error = await response.json();
-          setSearchError(error.error || "Token not found on Solana blockchain");
-          toast({
-            title: "Token Not Found",
-            description: "Could not find this token address on the Solana blockchain. Please verify the address is correct.",
-            variant: "destructive",
-          });
-        }
-      } catch (error) {
-        setSearchError("Failed to search for token");
-        toast({
-          title: "Search Error",
-          description: "Failed to search for token. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsSearching(false);
-      }
-    } else if (searchTerm.length >= 2) {
-      // Use existing database search for names/symbols
-      // This searches the existing tracked tokens
-      setIsSearching(true);
-      try {
-        // Just update the searchQuery to trigger existing token filtering
-        setSearchQuery(searchTerm);
-        toast({
-          title: "Searching Database",
-          description: `Filtering tracked tokens for "${searchTerm}"`,
-        });
-      } catch (error) {
-        setSearchError("Failed to search for token");
-      } finally {
-        setIsSearching(false);
-      }
-    }
-  };
-
-  const handleFiltersChange = (newFilters: typeof filters) => {
-    setFilters(newFilters);
-    setCurrentPage(1); // Reset to first page when filters change
-  };
+  // Calculate stats from fetched data - handle the actual backend response structure
+  const rawNewTokens = newTokensData?.tokens || [];
+  // Sort tokens by timestamp (newest first)
+  const newTokens = [...rawNewTokens].sort((a: any, b: any) => {
+    const dateA = new Date(a.timestamp || 0).getTime();
+    const dateB = new Date(b.timestamp || 0).getTime();
+    return dateB - dateA; // Descending order (newest first)
+  });
   
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-  };
-  
-  // Reset to page 1 when search query changes
+  const allTokens = allTokensData?.tokens || (Array.isArray(allTokensData) ? allTokensData : []);
+  const solanaPrice = 150.00; // Can be updated from backend if available
+  const totalTokens = newTokensData?.count || newTokens.length || 0;
+  const tokensPerHour = Math.floor(totalTokens / 24) || 0;
+  const totalMigrations = 0; // Backend doesn't have migrations endpoint yet
+  const readyToMigrate = 0;
+  const trendingCount = dexScreenerData?.pairs?.length || 0;
+
+  // Debug logging
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
+    console.log('📈 Dashboard State:', {
+      isLoadingNewTokens,
+      newTokensError: newTokensError?.message,
+      newTokensCount: newTokens.length,
+      totalTokens,
+      hasData: !!newTokensData,
+    });
+  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData]);
+
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    if (value.trim()) {
+      toast({
+        title: "Search",
+        description: `Searching for "${value}"`,
+      });
+    }
+  };
   
   const handleWalletConnect = async () => {
     if (!isPhantomInstalled) {
@@ -253,7 +224,6 @@ export default function Dashboard() {
     try {
       if (connected) {
         await disconnect();
-        // Clear authentication when wallet is disconnected
         localStorage.removeItem('memeter_authenticated');
         toast({
           title: "Wallet Disconnected",
@@ -282,19 +252,17 @@ export default function Dashboard() {
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              {/* Logo - Memeter logo SVG - Aligned with left side of blue rectangle */}
+              {/* Logo - Memeter logo SVG */}
               <div className="relative w-32 h-32">
                 <img 
                   src="/memeter-logo.svg" 
                   alt="Memeter Logo" 
                   className="w-full h-full object-contain"
                 />
-                </div>
+              </div>
               <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  <span className="text-sm text-muted-foreground" data-testid="connection-status">
-                    Live
-                  </span>
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <span className="text-sm text-muted-foreground">Live</span>
               </div>
             </div>
             
@@ -307,13 +275,7 @@ export default function Dashboard() {
                   className="pl-10 w-96"
                   value={searchQuery}
                   onChange={(e) => handleSearch(e.target.value)}
-                  data-testid="input-search"
                 />
-                {isSearching && (
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
-                  </div>
-                )}
               </div>
               
               {/* Live Solana Price */}
@@ -321,13 +283,11 @@ export default function Dashboard() {
                 <span className="text-2xl text-white transform -skew-x-6 drop-shadow-lg animate-pulse hover:scale-105 transition-transform duration-300">◎</span>
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium text-foreground">
-                    ${solanaNetworkStats?.price ? solanaNetworkStats.price.toFixed(2) : '---'}
+                    ${solanaPrice.toFixed(2)}
                   </span>
-                  {solanaNetworkStats?.percentChange24h !== undefined && (
-                    <span className={`text-xs font-medium ${solanaNetworkStats.percentChange24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {solanaNetworkStats.percentChange24h >= 0 ? '+' : ''}{solanaNetworkStats.percentChange24h.toFixed(2)}%
-                    </span>
-                  )}
+                  <span className="text-xs font-medium text-green-500">
+                    +0.00%
+                  </span>
                 </div>
               </div>
               
@@ -335,7 +295,6 @@ export default function Dashboard() {
                 variant="secondary" 
                 size="sm" 
                 asChild 
-                data-testid="button-favorites"
                 className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-orange-500/10 hover:text-orange-500 hover:border-orange-500/20 hover:shadow-orange-500/25"
               >
                 <Link href="/favorites">
@@ -348,7 +307,6 @@ export default function Dashboard() {
                 variant={connected ? "default" : "secondary"} 
                 size="sm" 
                 onClick={handleWalletConnect}
-                data-testid="button-wallet"
                 className={`hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/20 hover:shadow-green-500/25 ${connected ? 
                   "bg-green-600 hover:bg-green-700 hover:scale-105 hover:shadow-lg transition-all duration-200" : 
                   ""
@@ -360,7 +318,6 @@ export default function Dashboard() {
                   "Wallet"
                 }
               </Button>
-              
             </div>
           </div>
         </div>
@@ -393,9 +350,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Recently Migrated</p>
-                  <p className="text-3xl font-bold text-green-600">
-                    {migrationData?.migrations?.length || 0}
-                  </p>
+                  <p className="text-3xl font-bold text-green-600">{totalMigrations}</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     <Timer className="inline h-3 w-3 mr-1" />
                     Last 24h
@@ -412,10 +367,9 @@ export default function Dashboard() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Tokens Ready to Migrate Today</p>
-                  <p className="text-3xl font-bold text-purple-600">1,247</p>
+                  <p className="text-sm font-medium text-muted-foreground">Ready to Migrate</p>
+                  <p className="text-3xl font-bold text-purple-600">{readyToMigrate}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    <BarChart3 className="inline h-3 w-3 mr-1" />
                     <span className="inline-flex items-center">
                       <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mr-1 animate-pulse"></div>
                       Ready
@@ -434,9 +388,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Trending Tokens</p>
-                  <p className="text-3xl font-bold text-orange-600">
-                    {trendingData?.trending?.length || 0}
-                  </p>
+                  <p className="text-3xl font-bold text-orange-600">{trendingCount}</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     <TrendingUp className="inline h-3 w-3 mr-1" />
                     Top performers
@@ -468,124 +420,115 @@ export default function Dashboard() {
               </Button>
             </div>
             
-            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[1200px] max-h-[1000px] overflow-y-auto space-y-3">
-              {isLoadingLiveTokens ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <span className="ml-2">Loading live tokens...</span>
-                </div>
-              ) : liveTokensError ? (
+            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
+              {isLoadingNewTokens ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>Failed to load live tokens</p>
-                  <p className="text-sm">{liveTokensError}</p>
+                  <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                  <p>Loading new tokens from backend...</p>
+                  <p className="text-xs mt-2">Connecting to PumpPortal WebSocket...</p>
                 </div>
-              ) : liveTokens.length > 0 ? (
-                liveTokens.slice(0, 30).map((token, index) => (
-                  <div key={token.mint} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-                          {token.image ? (
-                            <img 
-                              src={token.image} 
-                              alt={token.symbol}
-                              className="w-8 h-8 rounded-full object-cover"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                target.nextElementSibling?.classList.remove('hidden');
-                              }}
-                            />
-                          ) : null}
-                          <span className={token.image ? 'hidden' : ''}>{token.symbol.charAt(0)}</span>
-                        </div>
-                        <div>
-                          <div className="font-medium text-sm">{token.name}</div>
-                          <div className="text-xs text-muted-foreground">{token.symbol}</div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        <div className="text-right">
-                          <div className="text-sm font-medium">${(token.marketCapSol ? token.marketCapSol * 150 : token.marketCap || 0).toLocaleString()}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {token.pool === 'pump' ? (
-                              <a 
-                                href={`https://pump.fun/${token.mint}`} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-green-500 hover:text-green-400 transition-colors"
-                              >
-                                pump.fun
-                              </a>
-                            ) : token.pool === 'bonk' ? (
-                              <a 
-                                href={`https://bonk.fun/${token.mint}`} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:text-blue-400 transition-colors"
-                              >
-                                bonk.fun
-                              </a>
-                            ) : (
-                              <span className="text-muted-foreground">Unknown</span>
-                            )}
+              ) : newTokensError ? (
+                <div className="text-center py-8 text-red-500">
+                  <p>❌ Error loading tokens</p>
+                  <p className="text-xs mt-2">{String(newTokensError)}</p>
+                  <Button onClick={() => refetchNewTokens()} className="mt-4" size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Retry
+                  </Button>
+                </div>
+              ) : newTokens.length > 0 ? (
+                newTokens.slice(0, 30).map((token: any, index: number) => {
+                  const marketCapUSD = token.marketCapSol ? (token.marketCapSol * solanaPrice).toFixed(2) : '0';
+                  const launchpadUrl = token.pool === 'pump' 
+                    ? `https://pump.fun/${token.mint}` 
+                    : token.pool === 'bonk' 
+                    ? `https://bonk.fun/${token.mint}`
+                    : null;
+                  
+                  return (
+                    <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          {/* Token Image - Fetches metadata and extracts real image */}
+                          <TokenImage uri={token.uri} symbol={token.symbol} directImage={token.image} />
+                          
+                          <div>
+                            <div className="font-medium text-sm">{token.name || token.symbol || 'Unknown'}</div>
+                            <div className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</div>
                           </div>
                         </div>
                         
-                        <div className="flex items-center space-x-1">
-                          <a 
-                            href={`https://solscan.io/token/${token.mint}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted-foreground hover:text-foreground transition-colors"
-                            title="View on Solscan"
-                          >
-                            <ExternalLinkIcon className="h-3 w-3" />
-                          </a>
+                        <div className="flex items-center space-x-2">
+                          <div className="text-right">
+                            <div className="text-sm font-medium">${Number(marketCapUSD).toLocaleString()}</div>
+                            <div className="text-xs text-blue-500">{token.marketCapSol?.toFixed(2)} SOL</div>
+                          </div>
                           
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              const favoriteToken = {
-                                mint: token.mint,
-                                category: 'new' as const, // Explicitly set category
-                                name: token.name,
-                                symbol: token.symbol,
-                                image: token.image,
-                                marketCap: token.marketCapSol ? token.marketCapSol * 150 : token.marketCap,
-                                pool: token.pool
-                              };
-                              toggleCategorizedFavorite(favoriteToken); // Use new categorized toggle
-                              toast({
-                                title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
-                                description: `${token.symbol} ${isFavorite(token.mint) ? 'removed from' : 'added to'} your favorites`,
-                              });
-                            }}
-                            className={`h-6 w-6 p-0 transition-all duration-200 flex items-center justify-center ${
-                              isFavorite(token.mint)
-                                ? 'bg-orange-500/10 hover:bg-orange-500/20 hover:shadow-lg hover:shadow-orange-500/25'
-                                : 'hover:bg-orange-500/10 hover:shadow-md hover:shadow-orange-500/15'
-                            }`}
-                            title={isFavorite(token.mint) ? "Remove from favorites" : "Add to favorites"}
-                          >
-                            <Star 
-                              className={`h-3 w-3 transition-all duration-200 ${
-                                isFavorite(token.mint) 
-                                  ? 'fill-orange-500 text-orange-500 drop-shadow-sm' 
-                                  : 'text-muted-foreground hover:text-orange-500 hover:drop-shadow-sm'
-                              }`} 
-                            />
-                          </Button>
+                          {/* Links */}
+                          <div className="flex items-center space-x-1">
+                            {/* Solscan Link */}
+                            <a 
+                              href={`https://solscan.io/token/${token.mint}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-blue-500 transition-colors"
+                              title="View on Solscan"
+                            >
+                              <ExternalLinkIcon className="h-3.5 w-3.5" />
+                            </a>
+                            
+                            {/* Launchpad Link */}
+                            {launchpadUrl && (
+                              <a 
+                                href={launchpadUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  token.pool === 'pump' 
+                                    ? 'text-green-500 hover:bg-green-500/10' 
+                                    : 'text-blue-500 hover:bg-blue-500/10'
+                                }`}
+                                title={`View on ${token.pool === 'pump' ? 'Pump.fun' : 'Bonk.fun'}`}
+                              >
+                                {token.pool === 'pump' ? 'P' : 'B'}
+                              </a>
+                            )}
+                            
+                            {/* Favorite Button */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                toggleCategorizedFavorite({
+                                  mint: token.mint,
+                                  category: 'new',
+                                  name: token.name,
+                                  symbol: token.symbol,
+                                  marketCap: Number(marketCapUSD),
+                                });
+                                toast({
+                                  title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
+                                  description: `${token.symbol} has been ${isFavorite(token.mint) ? 'removed from' : 'added to'} your favorites`,
+                                });
+                              }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Star className={`h-3 w-3 ${isFavorite(token.mint) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>No new tokens found</p>
+                  <p>No tokens available</p>
+                  <p className="text-xs mt-2">Waiting for new tokens from PumpPortal...</p>
+                  <Button onClick={() => refetchNewTokens()} className="mt-4" size="sm" variant="outline">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
                 </div>
               )}
             </div>
@@ -600,52 +543,18 @@ export default function Dashboard() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => refetchMigrations()}
+                onClick={() => window.location.reload()}
                 className="h-8 w-8 p-0 hover:bg-orange-500/10"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
             
-            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[1200px] max-h-[1000px] overflow-y-auto space-y-3">
-              {isLoadingMigrations ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <span className="ml-2">Loading migrations...</span>
-                </div>
-              ) : migrationError ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>Failed to load migrations</p>
-                  <p className="text-sm">{migrationError.message}</p>
-                </div>
-              ) : migrationData?.migrations?.length > 0 ? (
-                migrationData.migrations.slice(0, 30).map((migration: any, index: number) => (
-                  <div key={index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                          {migration.symbol?.charAt(0) || 'M'}
-                        </div>
-                        <div>
-                          <div className="font-medium text-sm">{migration.name || 'Migrated Token'}</div>
-                          <div className="text-xs text-muted-foreground">{migration.symbol || 'MIGRATED'}</div>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <div className="text-sm font-medium">Migrated</div>
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(migration.timestamp || Date.now()).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>No recent migrations</p>
-                </div>
-              )}
+            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
+              <div className="text-center py-8 text-muted-foreground">
+                <p>No recent migrations</p>
+                <p className="text-xs mt-2">Migrated tokens will appear here</p>
+              </div>
             </div>
           </div>
 
@@ -658,48 +567,100 @@ export default function Dashboard() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => refetchTrending()}
+                onClick={() => refetchDexScreener()}
                 className="h-8 w-8 p-0 hover:bg-orange-500/10"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
             
-            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[1200px] max-h-[1000px] overflow-y-auto space-y-3">
-              {isLoadingTrending ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <span className="ml-2">Loading trending tokens...</span>
-                </div>
-              ) : trendingError ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>Failed to load trending tokens</p>
-                  <p className="text-sm">{trendingError.message}</p>
-                </div>
-              ) : trendingData?.trending?.length > 0 ? (
-                trendingData.trending.slice(0, 30).map((token: any, index: number) => (
-                  <div key={index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
-                          {token.symbol?.charAt(0) || 'T'}
+            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
+              {dexScreenerData?.pairs && dexScreenerData.pairs.length > 0 ? (
+                dexScreenerData.pairs.slice(0, 30).map((pair: any, index: number) => {
+                  return (
+                    <div key={pair.pairAddress || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          {/* Token Image */}
+                          <div className="relative w-10 h-10">
+                            {pair.info?.imageUrl && (
+                              <img 
+                                src={pair.info.imageUrl}
+                                alt={pair.baseToken?.symbol}
+                                className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                }}
+                              />
+                            )}
+                            <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
+                              {pair.baseToken?.symbol?.charAt(0)?.toUpperCase() || 'T'}
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <div className="font-medium text-sm">{pair.baseToken?.name || pair.baseToken?.symbol || 'Unknown'}</div>
+                            <div className="text-xs text-muted-foreground">{pair.baseToken?.symbol || 'N/A'}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-medium text-sm">{token.name || 'Trending Token'}</div>
-                          <div className="text-xs text-muted-foreground">{token.symbol || 'TREND'}</div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <div className="text-right">
+                            <div className={`text-sm font-medium ${
+                              (pair.priceChange?.h24 || 0) >= 0 ? 'text-green-500' : 'text-red-500'
+                            }`}>
+                              {(pair.priceChange?.h24 || 0) >= 0 ? '+' : ''}{(pair.priceChange?.h24 || 0).toFixed(2)}%
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              ${(pair.volume?.h24 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </div>
+                          </div>
+                          
+                          {/* Links */}
+                          <div className="flex items-center space-x-1">
+                            {/* DexScreener Link */}
+                            <a 
+                              href={`https://dexscreener.com/solana/${pair.pairAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-orange-500 transition-colors"
+                              title="View on DexScreener"
+                            >
+                              <ExternalLinkIcon className="h-3.5 w-3.5" />
+                            </a>
+                            
+                            {/* Favorite Button */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                toggleCategorizedFavorite({
+                                  mint: pair.baseToken?.address || pair.pairAddress,
+                                  category: 'trending',
+                                  name: pair.baseToken?.name,
+                                  symbol: pair.baseToken?.symbol,
+                                  marketCap: pair.fdv || 0,
+                                });
+                                toast({
+                                  title: isFavorite(pair.baseToken?.address || pair.pairAddress) ? "Removed from Favorites" : "Added to Favorites",
+                                  description: `${pair.baseToken?.symbol} has been ${isFavorite(pair.baseToken?.address || pair.pairAddress) ? 'removed from' : 'added to'} your favorites`,
+                                });
+                              }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Star className={`h-3 w-3 ${isFavorite(pair.baseToken?.address || pair.pairAddress) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <div className="text-sm font-medium">+{Math.floor(Math.random() * 100)}%</div>
-                        <div className="text-xs text-muted-foreground">24h</div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>No trending tokens</p>
+                  <p>Loading trending tokens...</p>
+                  <p className="text-xs mt-2">DexScreener data will appear here</p>
                 </div>
               )}
             </div>

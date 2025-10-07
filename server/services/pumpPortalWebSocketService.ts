@@ -200,13 +200,37 @@ class PumpPortalWebSocketService {
       // If no direct image but we have a URI, try to fetch from metadata
       if (!imageUrl && data.uri) {
         try {
-          const metadataResponse = await fetch(data.uri);
+          console.log('Fetching metadata from:', data.uri);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+          
+          const metadataResponse = await fetch(data.uri, {
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
           if (metadataResponse.ok) {
             const metadata = await metadataResponse.json() as any;
-            imageUrl = metadata.image;
+            if (metadata.image) {
+              imageUrl = metadata.image;
+              // Use faster IPFS gateway
+              if (imageUrl.includes('ipfs.io/ipfs/')) {
+                imageUrl = imageUrl.replace('ipfs.io', 'cf-ipfs.com');
+              }
+              console.log('Got image from metadata:', imageUrl);
+            }
+            // Also extract name/symbol if available and missing
+            if (!tokenName && metadata.name) tokenName = metadata.name;
+            if (!tokenSymbol && metadata.symbol) tokenSymbol = metadata.symbol;
+            if (!description && metadata.description) description = metadata.description;
           }
         } catch (error) {
-          console.log('Failed to fetch metadata for token:', data.name, error);
+          console.log('Failed to fetch metadata for token:', data.name, error instanceof Error ? error.message : error);
         }
       }
       

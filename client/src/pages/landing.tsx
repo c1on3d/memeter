@@ -1,81 +1,34 @@
 import { useState, useEffect } from "react";
-import { useLocation, Link } from "wouter";
+import { useLocation } from "wouter";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { 
   Wallet, 
-  ArrowRight,
   Shield,
   Activity,
   TrendingUp,
   Zap,
   CheckCircle,
-  AlertCircle,
-  ExternalLink,
-  BarChart3,
-  Lock
+  ExternalLink
 } from "lucide-react";
-import { SiX, SiSolana } from "react-icons/si";
+import { SiX } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Landing() {
   const [, setLocation] = useLocation();
   const [isConnecting, setIsConnecting] = useState(false);
-  const [password, setPassword] = useState("");
-  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const { publicKey, connected, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
+  const { publicKey, connected, connect, isPhantomInstalled } = usePhantomWallet();
   const { toast } = useToast();
 
-  // Check for existing authentication on page load
+  // Redirect to dashboard if already connected
   useEffect(() => {
-    const storedAuth = localStorage.getItem('memeter_authenticated');
-    if (storedAuth === 'true') {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  // Redirect to dashboard if already connected and authenticated
-  useEffect(() => {
-    console.log('Landing page - Wallet state:', { connected, publicKey: publicKey?.slice(0, 8) + '...', isAuthenticated });
-    if (connected && publicKey && isAuthenticated) {
-      console.log('Redirecting to dashboard...');
+    if (connected && publicKey) {
+      localStorage.setItem('memeter_authenticated', 'true');
       setLocation('/dashboard');
     }
-  }, [connected, publicKey, isAuthenticated, setLocation]);
-
-  // Password validation - dashboard password is "memetics"
-  const validatePassword = (inputPassword: string) => {
-    return inputPassword === "memetics";
-  };
-
-  const handlePasswordSubmit = () => {
-    if (validatePassword(password)) {
-      setIsAuthenticated(true);
-      // Store authentication in localStorage for persistent access
-      localStorage.setItem('memeter_authenticated', 'true');
-      setIsPasswordDialogOpen(false);
-      toast({
-        title: "Access Granted",
-        description: "Welcome to MEMETER Dashboard!",
-      });
-      // If wallet is already connected, redirect immediately
-      if (connected && publicKey) {
-        setLocation('/dashboard');
-      }
-    } else {
-      toast({
-        title: "Invalid Password",
-        description: "Please enter a valid password.",
-        variant: "destructive",
-      });
-    }
-  };
+  }, [connected, publicKey, setLocation]);
 
   const handleConnect = async () => {
     if (!isPhantomInstalled) {
@@ -92,18 +45,14 @@ export default function Landing() {
     
     try {
       await connect();
+      localStorage.setItem('memeter_authenticated', 'true');
       toast({
         title: "Welcome to MEMETER!",
         description: "Successfully connected to your Phantom wallet.",
       });
-      // Redirect to dashboard if already authenticated
-      if (isAuthenticated) {
-        console.log('Connection successful, redirecting to dashboard...');
-        setTimeout(() => {
-          console.log('Executing redirect to dashboard');
-          setLocation('/dashboard');
-        }, 300); // Small delay to show the success toast
-      }
+      setTimeout(() => {
+        setLocation('/dashboard');
+      }, 300);
     } catch (error) {
       toast({
         title: "Connection Failed",
@@ -205,85 +154,40 @@ export default function Landing() {
               </p>
             </div>
 
-            {/* Small Orange Wallet Button */}
+            {/* Wallet Connect Button */}
             <div className="mb-8">
               {!isPhantomInstalled ? (
                 <Button 
                   onClick={() => window.open("https://phantom.app/", "_blank")}
-                  size="sm"
-                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                  className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 px-8 py-6 text-lg"
                 >
-                  <ExternalLink className="h-4 w-4 mr-2" />
+                  <ExternalLink className="h-5 w-5 mr-2" />
                   Install Phantom Wallet
                 </Button>
               ) : connected ? (
                 <div className="flex items-center justify-center space-x-2 text-green-500">
-                  <CheckCircle className="h-4 w-4" />
-                  <span className="text-sm">Connected: {publicKey?.slice(0, 4)}...{publicKey?.slice(-4)}</span>
+                  <CheckCircle className="h-5 w-5" />
+                  <span className="text-lg">Connected: {publicKey?.slice(0, 4)}...{publicKey?.slice(-4)}</span>
                 </div>
               ) : (
                 <Button 
                   onClick={handleConnect}
                   disabled={isConnecting}
-                  size="sm"
-                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                  className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 px-8 py-6 text-lg"
                 >
                   {isConnecting ? (
                     <>
-                      <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                      <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></div>
                       Connecting...
                     </>
                   ) : (
                     <>
-                      <Wallet className="h-4 w-4 mr-2" />
-                      Connect Wallet
+                      <Wallet className="h-5 w-5 mr-2" />
+                      Connect Wallet to Access Dashboard
                     </>
                   )}
                 </Button>
               )}
-            </div>
-
-            {/* Password Protected Dashboard Access */}
-            <div className="flex justify-center items-center mb-8">
-              <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 px-6 py-2"
-                  >
-                    <Lock className="h-4 w-4 mr-2" />
-                    Access Dashboard
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Enter Password</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="password">Password</Label>
-                      <Input
-                        id="password"
-                        type="password"
-                        placeholder="Enter password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handlePasswordSubmit();
-                          }
-                        }}
-                      />
-                    </div>
-                    <Button 
-                      onClick={handlePasswordSubmit}
-                      className="w-full bg-purple-600 hover:bg-purple-700"
-                    >
-                      <Lock className="h-4 w-4 mr-2" />
-                      Access Dashboard
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
 

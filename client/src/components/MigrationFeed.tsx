@@ -1,12 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useWebSocket } from "@/hooks/useWebSocket";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowRight, Clock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
-import { useState, useEffect } from "react";
-import { TokenSummary } from "./TokenSummary";
-import { queryClient } from "@/lib/queryClient";
+import { useState } from "react";
 
 interface MigrationEvent {
   id: string;
@@ -95,16 +90,6 @@ export function MigrationFeed() {
     
     return { score, grade, color };
   };
-  const { lastMessage } = useWebSocket("/ws");
-
-  // Invalidate migrations cache when WebSocket receives updates
-  useEffect(() => {
-    if (lastMessage) {
-      console.log('WebSocket message received, invalidating cache:', lastMessage);
-      queryClient.invalidateQueries({ queryKey: ["/api/migrations/recent"] });
-    }
-  }, [lastMessage]);
-
 
   // Fetch recent token migrations
   const { data: migrationData } = useQuery<{ migrations: any[] }>({

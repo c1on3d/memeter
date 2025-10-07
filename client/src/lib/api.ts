@@ -1,16 +1,25 @@
-// API configuration for different environments
+// API configuration - Configure this to point to your backend on Render
 const getApiBaseUrl = () => {
-  // Use Render backend for both development and production
-  // This ensures live token data is available everywhere
-  if (process.env.NODE_ENV === 'production') {
-    return 'https://memeter-backend.onrender.com'; // Render backend
+  // Set your backend URL here or via environment variable
+  const envUrl = import.meta.env.VITE_API_URL;
+  
+  console.log('🔧 API Configuration:', {
+    VITE_API_URL: envUrl,
+    willUseUrl: envUrl || 'NONE - API calls will fail!',
+  });
+  
+  if (envUrl) {
+    return envUrl;
   }
   
-  // In development, use localhost
-  return 'http://localhost:5000';
+  // Default: Leave empty if using VITE_API_URL environment variable
+  // Example: 'https://your-backend-name.onrender.com'
+  console.warn('⚠️ VITE_API_URL not set! API calls will fail.');
+  return '';
 };
 
 export const API_BASE_URL = getApiBaseUrl();
+console.log('✅ API_BASE_URL set to:', API_BASE_URL);
 
 // Helper function to build API URLs
 export const buildApiUrl = (endpoint: string): string => {
@@ -24,14 +33,25 @@ export const buildApiUrl = (endpoint: string): string => {
   return cleanEndpoint;
 };
 
-// API endpoints - different for local vs production
+// API endpoints mapped to your Render backend
+// Based on: https://memeter-backend.onrender.com/
 export const API_ENDPOINTS = {
-  NEW_TOKENS: '/api/pumpportal/new-tokens',
-  MIGRATIONS: '/api/migrations',
-  SOLANA_STATS: '/api/solana/network-stats',
-  TRENDING_TOKENS: '/api/tokens/trending',
+  // PumpPortal - New tokens from WebSocket
+  NEW_TOKENS: '/api/new',
+  
+  // Token data
   TOKENS: '/api/tokens',
-  SEARCH_TOKENS: '/api/tokens/search',
-  TOKEN_IMAGE: '/api/tokens',
-  TOKEN_ANALYSIS: '/api/tokens',
+  
+  // DexScreener endpoints
+  DEXSCREENER_LATEST: '/api/dexscreener/latest',
+  DEXSCREENER_SEARCH: '/api/dexscreener/search',
+  DEXSCREENER_TOKEN: '/api/dexscreener/token',
+  DEXSCREENER_PAIR: '/api/dexscreener/pair',
+  
+  // Social data
+  SOCIAL_OVERVIEW: '/api/social/overview',
+  SOCIAL_TOKEN: '/api/social/token',
+  
+  // Backend status
+  STATUS: '/',
 } as const;

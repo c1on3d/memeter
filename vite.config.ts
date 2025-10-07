@@ -36,12 +36,7 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        secure: false,
-      },
-    },
+    // Proxy disabled - using VITE_API_URL from .env instead
+    // This allows direct connection to Render backend
   },
 });

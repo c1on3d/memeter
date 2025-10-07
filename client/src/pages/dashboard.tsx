@@ -11,21 +11,32 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - Uses backend proxy to avoid CORS
+// Token Image Component - Uses backend proxy once deployed
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
+  const [proxyAvailable, setProxyAvailable] = useState(false);
+  
+  useEffect(() => {
+    // Check if backend proxy is available
+    fetch(buildApiUrl('/api/image-proxy?url=test'))
+      .then(r => setProxyAvailable(r.status === 400)) // 400 = proxy exists (missing url param)
+      .catch(() => setProxyAvailable(false));
+  }, []);
+  
   const getImageSrc = () => {
-    // Use direct image if provided (no proxy needed)
+    // Use direct non-IPFS images (like Twitter images)
     if (directImage && !directImage.includes('ipfs')) {
       return directImage;
     }
     
-    // For IPFS URIs, proxy through backend to avoid CORS
-    const imageUrl = directImage || uri;
-    if (imageUrl) {
-      // Use backend proxy to fetch image (bypasses CORS)
-      return `${buildApiUrl('/api/image-proxy')}?url=${encodeURIComponent(imageUrl)}`;
+    // If proxy is available, use it for IPFS images
+    if (proxyAvailable) {
+      const imageUrl = directImage || uri;
+      if (imageUrl) {
+        return `${buildApiUrl('/api/image-proxy')}?url=${encodeURIComponent(imageUrl)}`;
+      }
     }
     
+    // Otherwise, letter avatars will show (no CORS issues)
     return null;
   };
   

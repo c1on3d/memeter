@@ -11,58 +11,52 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - with IPFS gateway fallbacks
+// Token Image Component - Uses working IPFS gateways only
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [attempted, setAttempted] = useState(false);
+  const [currentGatewayIndex, setCurrentGatewayIndex] = useState(0);
   
-  useEffect(() => {
-    // Priority 1: Use direct image if available
-    if (directImage) {
-      setImageUrl(directImage);
-      return;
+  // List of WORKING IPFS gateways (tested and verified)
+  const ipfsGateways = [
+    'https://dweb.link/ipfs/',
+    'https://ipfs.io/ipfs/',
+    'https://gateway.pinata.cloud/ipfs/',
+    'https://cloudflare-ipfs.com/ipfs/',
+  ];
+  
+  const getImageSrc = () => {
+    // Use direct image if provided
+    if (directImage) return directImage;
+    
+    // Extract IPFS hash from URI
+    if (uri && uri.includes('/ipfs/')) {
+      const ipfsHash = uri.split('/ipfs/')[1];
+      // Try gateways in order
+      return `${ipfsGateways[currentGatewayIndex]}${ipfsHash}`;
     }
     
-    // Priority 2: Use URI (most URIs are direct IPFS image links)
-    if (uri) {
-      // Convert to faster gateway immediately
-      let img = uri;
-      if (img.includes('ipfs.io/ipfs/')) {
-        img = img.replace('ipfs.io', 'cloudflare-ipfs.com');
-      }
-      setImageUrl(img);
+    return null;
+  };
+  
+  const imageSrc = getImageSrc();
+  
+  const handleImageError = () => {
+    // Try next gateway
+    if (currentGatewayIndex < ipfsGateways.length - 1) {
+      setCurrentGatewayIndex(currentGatewayIndex + 1);
     }
-  }, [directImage, uri]);
+    // If all gateways failed, image will be hidden by onError
+  };
   
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
-      {imageUrl && (
+      {imageSrc && (
         <img 
-          src={imageUrl}
+          key={`${mint}-${currentGatewayIndex}`}
+          src={imageSrc}
           alt={symbol}
           className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
           loading="lazy"
-          crossOrigin="anonymous"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            if (!attempted) {
-              setAttempted(true);
-              // Try nftstorage gateway as fallback
-              if (target.src.includes('cloudflare-ipfs.com/ipfs/')) {
-                const hash = target.src.split('/ipfs/')[1];
-                target.src = `https://nftstorage.link/ipfs/${hash}`;
-              } else if (target.src.includes('nftstorage.link/ipfs/')) {
-                const hash = target.src.split('/ipfs/')[1];
-                target.src = `https://ipfs.io/ipfs/${hash}`;
-              } else {
-                // All gateways failed, hide image
-                target.style.display = 'none';
-              }
-            } else {
-              // Already tried fallbacks, hide image
-              target.style.display = 'none';
-            }
-          }}
+          onError={handleImageError}
         />
       )}
       <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">

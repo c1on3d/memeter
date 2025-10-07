@@ -11,83 +11,31 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - Handles IPFS and metadata URLs
-function TokenImage({ uri, symbol, directImage }: { uri?: string | null, symbol: string, directImage?: string | null }) {
+// Token Image Component - Uses Pump.fun CDN for reliable images
+function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
-    // If we already have a direct image, use it immediately
+    // Strategy 1: Use direct image if available
     if (directImage) {
       let img = directImage;
-      // Use faster IPFS gateway
       if (img.includes('ipfs.io/ipfs/')) {
         img = img.replace('ipfs.io', 'cf-ipfs.com');
       } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
         img = img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
       }
       setImageUrl(img);
-      setIsLoading(false);
       return;
     }
     
-    if (!uri) {
-      setIsLoading(false);
-      return;
-    }
+    // Strategy 2: Use Pump.fun's image CDN (most reliable!)
+    const pumpFunImage = `https://pump.fun/cdn-cgi/image/width=200/${mint}`;
+    setImageUrl(pumpFunImage);
     
-    const fetchMetadata = async () => {
-      try {
-        // Try multiple CORS proxies as fallback
-        const proxies = [
-          (url: string) => url, // Try direct first (might work for some)
-          (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-          (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        ];
-        
-        for (const proxyFn of proxies) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-            
-            const proxyUrl = proxyFn(uri);
-            const response = await fetch(proxyUrl, { signal: controller.signal });
-            clearTimeout(timeoutId);
-            
-            if (response.ok) {
-              const metadata = await response.json();
-              if (metadata.image) {
-                let img = metadata.image;
-                // Use fastest IPFS gateway
-                if (img.includes('ipfs.io/ipfs/')) {
-                  img = img.replace('ipfs.io', 'cf-ipfs.com');
-                } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
-                  img = img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
-                } else if (img.startsWith('ipfs://')) {
-                  const hash = img.replace('ipfs://', '');
-                  img = `https://cf-ipfs.com/ipfs/${hash}`;
-                }
-                setImageUrl(img);
-                setIsLoading(false);
-                return; // Success, exit
-              }
-            }
-          } catch (error) {
-            // Try next proxy
-            continue;
-          }
-        }
-        setIsLoading(false);
-      } catch (error) {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchMetadata();
-  }, [uri, symbol, directImage]);
+  }, [mint, symbol, uri, directImage]);
   
   return (
-    <div className="relative w-10 h-10">
+    <div className="relative w-10 h-10 flex-shrink-0">
       {imageUrl && (
         <img 
           src={imageUrl}
@@ -100,11 +48,7 @@ function TokenImage({ uri, symbol, directImage }: { uri?: string | null, symbol:
         />
       )}
       <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-        {isLoading ? (
-          <div className="animate-pulse">●</div>
-        ) : (
-          symbol?.charAt(0)?.toUpperCase() || 'T'
-        )}
+        {symbol?.charAt(0)?.toUpperCase() || 'T'}
       </div>
     </div>
   );
@@ -449,8 +393,8 @@ export default function Dashboard() {
                     <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
-                          {/* Token Image - Fetches metadata and extracts real image */}
-                          <TokenImage uri={token.uri} symbol={token.symbol} directImage={token.image} />
+                          {/* Token Image - Uses Pump.fun CDN */}
+                          <TokenImage mint={token.mint} symbol={token.symbol} uri={token.uri} directImage={token.image} />
                           
                           <div>
                             <div className="font-medium text-sm">{token.name || token.symbol || 'Unknown'}</div>

@@ -73,10 +73,12 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
 
   const addToCategorizedFavorites = (token: FavoriteToken) => {
     setCategorizedFavorites(prev => {
-      if (!prev.some(fav => fav.mint === token.mint)) {
+      const exists = prev.some(fav => fav.mint === token.mint);
+      if (!exists) {
         return [...prev, token];
       }
-      return prev;
+      // Merge to refresh details like image/pool/name/symbol
+      return prev.map(fav => fav.mint === token.mint ? { ...fav, ...token } : fav);
     });
   };
 

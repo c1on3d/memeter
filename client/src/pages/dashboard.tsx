@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
-import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star } from "lucide-react";
+import { useSolPrice } from "@/hooks/useSolPrice";
+import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -47,30 +49,54 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
   const imageSrc = backendUrl ? getProxiedImageUrl(rawImage, backendUrl) : null;
   
   return (
-    <div className="relative w-10 h-10 flex-shrink-0">
-      {imageSrc && (
-        <img 
-          src={imageSrc}
-          alt={symbol}
-          className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
-          loading="lazy"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
-            console.log(`Image proxy failed for ${symbol}:`, imageSrc);
-          }}
-        />
-      )}
-      <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-        {symbol?.charAt(0)?.toUpperCase() || 'T'}
-      </div>
-    </div>
+    <Dialog>
+      <DialogTrigger asChild>
+        <div
+          className={`relative w-10 h-10 flex-shrink-0 ${imageSrc ? 'cursor-zoom-in ring-2 ring-white/70 hover:ring-white transition-shadow rounded-full' : ''}`}
+          title={imageSrc ? 'Click to enlarge' : undefined}
+        >
+          {imageSrc && (
+            <img 
+              src={imageSrc}
+              alt={symbol}
+              className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
+              loading="lazy"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                console.log(`Image proxy failed for ${symbol}:`, imageSrc);
+              }}
+            />
+          )}
+          <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+            {symbol?.charAt(0)?.toUpperCase() || 'T'}
+          </div>
+        </div>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[520px] bg-background p-0 border-0 shadow-xl">
+        {imageSrc && (
+          <img
+            src={imageSrc}
+            alt={symbol}
+            className="max-h-[80vh] w-auto rounded-xl mx-auto"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+            }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
+  type SearchResult = { type: 'dex'; pair: any } | { type: 'pump'; token: any };
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Authentication check - redirect to landing if not authenticated
   useEffect(() => {
@@ -84,6 +110,9 @@ export default function Dashboard() {
   const { theme } = useTheme();
   const { toast } = useToast();
   const { toggleCategorizedFavorite, isFavorite } = useFavorites();
+
+  // Helpers
+  const isSolAddress = (s: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test((s || '').trim());
 
   // Wallet connection
   const { connected, publicKey, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
@@ -119,13 +148,26 @@ export default function Dashboard() {
     refetchInterval: 15000, // Refetch every 15 seconds
   });
 
-  // Fetch DexScreener latest data
+  // Fetch DexScreener data with backend-first, public-API fallback
   const { data: dexScreenerData, refetch: refetchDexScreener } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
-      const response = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
-      if (!response.ok) throw new Error('Failed to fetch DexScreener data');
-      return response.json();
+      // Try backend first
+      try {
+        const res = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
+        if (res.ok) {
+          const data = await res.json();
+          if ((Array.isArray(data?.tokens) && data.tokens.length > 0) || (Array.isArray(data?.pairs) && data.pairs.length > 0)) {
+            return data;
+          }
+        }
+      } catch {}
+
+      // Fallback to DexScreener public API
+      const ds = await fetch('https://api.dexscreener.com/latest/dex/pairs/solana');
+      if (!ds.ok) throw new Error('Failed to fetch DexScreener data');
+      const fallback = await ds.json();
+      return { pairs: fallback?.pairs || [] };
     },
     refetchInterval: 20000, // Refetch every 20 seconds
   });
@@ -140,13 +182,15 @@ export default function Dashboard() {
   });
   
   const allTokens = allTokensData?.tokens || (Array.isArray(allTokensData) ? allTokensData : []);
-  const solanaPrice = 150.00; // Can be updated from backend if available
+  const { data: solanaPrice = 0 } = useSolPrice();
   const totalTokens = newTokensData?.count || newTokens.length || 0;
   const tokensPerHour = Math.floor(totalTokens / 24) || 0;
   const totalMigrations = 0; // Backend doesn't have migrations endpoint yet
   const readyToMigrate = 0;
-// Build trending list using 6h performance from Solana pairs
-const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tokens : [];
+  // Build trending list using 6h performance from Solana pairs
+  const solanaPairs = Array.isArray(dexScreenerData?.pairs)
+    ? dexScreenerData.pairs
+    : (Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tokens : []);
   const trendingPairs = [...solanaPairs]
     .sort((a: any, b: any) => ((b?.priceChange?.h6 ?? -Infinity) - (a?.priceChange?.h6 ?? -Infinity)))
     .slice(0, 30);
@@ -163,15 +207,72 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
     });
   }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData]);
 
-  const handleSearch = (value: string) => {
-    setSearchQuery(value);
-    if (value.trim()) {
-      toast({
-        title: "Search",
-        description: `Searching for "${value}"`,
-      });
+  // Debounced search for SPL tokens (by address or symbol/name)
+  useEffect(() => {
+    const q = (searchQuery || '').trim();
+    if (!q) {
+      setSearchResults([]);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
     }
-  };
+    
+    const id = setTimeout(async () => {
+      setSearchLoading(true);
+      setSearchError(null);
+      try {
+        const combined: SearchResult[] = [];
+
+        // 1) PumpPortal tokens (from in-memory new/all tokens already in page)
+        const pumpSource: any[] = [
+          ...newTokens,
+          ...(Array.isArray(allTokens) ? allTokens : [])
+        ];
+
+        if (isSolAddress(q)) {
+          const pumpMatches = pumpSource.filter((t) => (t?.mint || '').trim() === q);
+          pumpMatches.slice(0, 20).forEach((t) => combined.push({ type: 'pump', token: t }));
+        } else {
+          const ql = q.toLowerCase();
+          const pumpMatches = pumpSource.filter((t) =>
+            (t?.symbol || '').toLowerCase().includes(ql) || (t?.name || '').toLowerCase().includes(ql)
+          );
+          pumpMatches.slice(0, 20).forEach((t) => combined.push({ type: 'pump', token: t }));
+        }
+
+        // 2) DexScreener data
+        if (isSolAddress(q)) {
+          const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DEXSCREENER_TOKEN}/${q}`));
+          if (res.ok) {
+            const data = await res.json();
+            const pairs = data?.data?.pairs || data?.pairs || [];
+            pairs.slice(0, 20).forEach((p: any) => combined.push({ type: 'dex', pair: p }));
+          }
+        } else {
+          const res = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
+          if (res.ok) {
+            const data = await res.json();
+            const pairs = data?.tokens || data?.pairs || [];
+            const ql = q.toLowerCase();
+            const filtered = pairs.filter((p: any) =>
+              (p?.baseToken?.symbol || '').toLowerCase().includes(ql) ||
+              (p?.baseToken?.name || '').toLowerCase().includes(ql)
+            );
+            filtered.slice(0, 20).forEach((p: any) => combined.push({ type: 'dex', pair: p }));
+          }
+        }
+
+        setSearchResults(combined);
+      } catch (e: any) {
+        setSearchError(e?.message || 'Search failed');
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(id);
+  }, [searchQuery]);
   
   const handleWalletConnect = async () => {
     if (!isPhantomInstalled) {
@@ -222,9 +323,9 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                   alt="Memeter Logo" 
                   className="w-full h-full object-contain"
                 />
-              </div>
+                </div>
               <div className="flex items-center space-x-1">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
                 <span className="text-sm text-muted-foreground">Live</span>
               </div>
             </div>
@@ -234,11 +335,113 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
                   type="text"
-                  placeholder="Search tokens by address, symbol, or name..."
+                  placeholder="Search SPL by address, symbol, or name..."
                   className="pl-10 w-96"
                   value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                {(searchLoading || searchError || searchResults.length > 0) && (
+                  <div className="absolute mt-2 w-[28rem] max-h-96 overflow-y-auto z-50 bg-card/95 border border-border/50 rounded-lg shadow-lg p-2">
+                    {searchLoading && (
+                      <div className="py-4 text-sm text-muted-foreground text-center">Searching…</div>
+                    )}
+                    {searchError && (
+                      <div className="py-4 text-sm text-red-500 text-center">Error: {searchError}</div>
+                    )}
+                    {!searchLoading && !searchError && searchResults.length === 0 && searchQuery && (
+                      <div className="py-4 text-sm text-muted-foreground text-center">No results</div>
+                    )}
+                    {!searchLoading && !searchError && searchResults.map((item, i: number) => {
+                      const backendBase = buildApiUrl('');
+                      if (item.type === 'dex') {
+                        const pair = item.pair;
+                        return (
+                          <a
+                            key={pair?.pairAddress || `dex-${i}`}
+                            href={`https://dexscreener.com/solana/${pair?.pairAddress}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between gap-3 px-2 py-2 rounded hover:bg-accent/30 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="relative w-8 h-8">
+                                {pair?.info?.imageUrl && (
+                                  <img
+                                    src={pair.info.imageUrl}
+                                    alt={pair?.baseToken?.symbol}
+                                    className="absolute inset-0 w-8 h-8 rounded-full object-cover"
+                                    onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                                  />
+                                )}
+                                <div className="absolute inset-0 w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-[10px] font-bold">
+                                  {(pair?.baseToken?.symbol || 'T').slice(0, 2).toUpperCase()}
+                                </div>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium">
+                                  {pair?.baseToken?.name || pair?.baseToken?.symbol || 'Unknown'}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {pair?.baseToken?.symbol} • {pair?.pairAddress?.slice(0, 4)}…{pair?.pairAddress?.slice(-4)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`text-xs font-semibold ${((pair?.priceChange?.h6 || 0) >= 0) ? 'text-green-500' : 'text-red-500'}`}>
+                                {((pair?.priceChange?.h6 || 0) >= 0 ? '+' : '') + (pair?.priceChange?.h6 || 0).toFixed(2)}% 6h
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {(pair?.volume?.h6 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
+                              </div>
+                            </div>
+                          </a>
+                        );
+                      }
+                      // PumpPortal token
+                      const t = item.token;
+                      const launchpadUrl = t.pool === 'pump' ? `https://pump.fun/${t.mint}` : t.pool === 'bonk' ? `https://bonk.fun/${t.mint}` : `https://solscan.io/token/${t.mint}`;
+                      const proxiedImg = getProxiedImageUrl(t.image || t.uri, backendBase);
+                      return (
+                        <a
+                          key={t?.mint || `pump-${i}`}
+                          href={launchpadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between gap-3 px-2 py-2 rounded hover:bg-accent/30 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="relative w-8 h-8">
+                              {proxiedImg && (
+                                <img
+                                  src={proxiedImg}
+                                  alt={t?.symbol}
+                                  className="absolute inset-0 w-8 h-8 rounded-full object-cover"
+                                  onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                                />
+                              )}
+                              <div className="absolute inset-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-[10px] font-bold">
+                                {(t?.symbol || 'T').slice(0, 2).toUpperCase()}
+                              </div>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium">
+                                {t?.name || t?.symbol || 'Unknown'}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {t?.symbol} • {t?.mint?.slice(0, 4)}…{t?.mint?.slice(-4)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] text-muted-foreground">
+                              {(t?.marketCapSol || 0).toFixed(2)} SOL MC
+                            </div>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               
               {/* Live Solana Price */}
@@ -250,7 +453,7 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                   </span>
                   <span className="text-xs font-medium text-green-500">
                     +0.00%
-                  </span>
+                    </span>
                 </div>
               </div>
               
@@ -376,7 +579,7 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => window.location.reload()}
+                onClick={() => refetchNewTokens()}
                 className="h-8 w-8 p-0 hover:bg-orange-500/10"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -410,20 +613,35 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                   
                   return (
                     <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
                           {/* Token Image - Uses Pump.fun CDN */}
                           <TokenImage mint={token.mint} symbol={token.symbol} uri={token.uri} directImage={token.image} />
                           
                           <div>
-                            <div className="font-medium text-sm">{token.name || token.symbol || 'Unknown'}</div>
+                            <div className="flex items-center gap-2 font-medium text-sm">
+                              <span>{token.name || token.symbol || 'Unknown'}</span>
+                              <button
+                                type="button"
+                                className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(token.mint || '');
+                                    toast({ title: 'Copied', description: 'Mint address copied to clipboard' });
+                                  } catch {}
+                                }}
+                                title="Copy mint address"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</span>
                               {launchpadUrl && (
                                 <a 
                                   href={launchpadUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                target="_blank" 
+                                rel="noopener noreferrer"
                                   className={`text-xs px-1.5 py-0.5 rounded hover:underline ${
                                     token.pool === 'pump' 
                                       ? 'text-green-500' 
@@ -445,39 +663,41 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                           </div>
                           
                           {/* Links */}
-                          <div className="flex items-center space-x-1">
+                        <div className="flex items-center space-x-1">
                             {/* Solscan Link */}
-                            <a 
-                              href={`https://solscan.io/token/${token.mint}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                          <a 
+                            href={`https://solscan.io/token/${token.mint}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                               className="text-muted-foreground hover:text-blue-500 transition-colors"
-                              title="View on Solscan"
-                            >
+                            title="View on Solscan"
+                          >
                               <ExternalLinkIcon className="h-3.5 w-3.5" />
-                            </a>
-                            
+                          </a>
+                          
                             {/* Favorite Button */}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
                                 toggleCategorizedFavorite({
-                                  mint: token.mint,
+                                mint: token.mint,
                                   category: 'new',
-                                  name: token.name,
-                                  symbol: token.symbol,
+                                name: token.name,
+                                symbol: token.symbol,
                                   marketCap: Number(marketCapUSD),
+                                  image: token.image || (token.uri ? getProxiedImageUrl(token.uri, buildApiUrl('')) || undefined : undefined),
+                                  pool: token.pool,
                                 });
-                                toast({
-                                  title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
+                              toast({
+                                title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
                                   description: `${token.symbol} has been ${isFavorite(token.mint) ? 'removed from' : 'added to'} your favorites`,
-                                });
-                              }}
+                              });
+                            }}
                               className="h-6 w-6 p-0"
                             >
                               <Star className={`h-3 w-3 ${isFavorite(token.mint) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
-                            </Button>
+                          </Button>
                           </div>
                         </div>
                       </div>
@@ -506,7 +726,9 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => window.location.reload()}
+                onClick={() => {
+                  // TODO: once wired, refetch migrations query here
+                }}
                 className="h-8 w-8 p-0 hover:bg-orange-500/10"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -514,10 +736,10 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
             </div>
             
             <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
-              <div className="text-center py-8 text-muted-foreground">
-                <p>No recent migrations</p>
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No recent migrations</p>
                 <p className="text-xs mt-2">Migrated tokens will appear here</p>
-              </div>
+                </div>
             </div>
           </div>
 
@@ -542,25 +764,42 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                 trendingPairs.map((pair: any, index: number) => {
                   return (
                     <div key={pair.pairAddress || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
                           {/* Token Image */}
-                          <div className="relative w-10 h-10">
-                            {pair.info?.imageUrl && (
-                              <img 
-                                src={pair.info.imageUrl}
-                                alt={pair.baseToken?.symbol}
-                                className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                }}
-                              />
-                            )}
-                            <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
-                              {pair.baseToken?.symbol?.charAt(0)?.toUpperCase() || 'T'}
-                            </div>
-                          </div>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <div className={`relative w-10 h-10 ${pair.info?.imageUrl ? 'cursor-zoom-in ring-2 ring-white/70 hover:ring-white transition-shadow rounded-full' : ''}`} title={pair.info?.imageUrl ? 'Click to enlarge' : undefined}>
+                                {pair.info?.imageUrl && (
+                                  <img 
+                                    src={pair.info.imageUrl}
+                                    alt={pair.baseToken?.symbol}
+                                    className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                    }}
+                                  />
+                                )}
+                                <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
+                                  {pair.baseToken?.symbol?.charAt(0)?.toUpperCase() || 'T'}
+                                </div>
+                              </div>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[520px] bg-background p-0 border-0 shadow-xl">
+                              {pair.info?.imageUrl && (
+                                <img
+                                  src={pair.info.imageUrl}
+                                  alt={pair.baseToken?.symbol}
+                                  className="max-h-[80vh] w-auto rounded-xl mx-auto"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.style.display = 'none';
+                                  }}
+                                />
+                              )}
+                            </DialogContent>
+                          </Dialog>
                           
                           <div>
                             <div className="font-medium text-sm">{pair.baseToken?.name || pair.baseToken?.symbol || 'Unknown'}</div>
@@ -604,6 +843,8 @@ const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tok
                                   name: pair.baseToken?.name,
                                   symbol: pair.baseToken?.symbol,
                                   marketCap: pair.fdv || 0,
+                                  image: pair.info?.imageUrl,
+                                  pool: undefined as any,
                                 });
                                 toast({
                                   title: isFavorite(pair.baseToken?.address || pair.pairAddress) ? "Removed from Favorites" : "Added to Favorites",

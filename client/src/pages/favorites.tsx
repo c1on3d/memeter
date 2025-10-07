@@ -1,7 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { TokenTable } from "@/components/TokenTable";
-import { Star, ArrowLeft, ExternalLinkIcon } from "lucide-react";
+import { Star, ArrowLeft, ExternalLinkIcon, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -9,6 +7,8 @@ import { useFavorites, type FavoriteToken } from "@/contexts/FavoritesContext";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { buildApiUrl } from "@/lib/api";
 import type { TokenWithMetrics } from "@/types";
 
 export default function Favorites() {
@@ -30,29 +30,83 @@ export default function Favorites() {
   const migratedTokensFavorites = categorizedFavorites.filter(token => token.category === 'migrated');
   const trendingTokensFavorites = categorizedFavorites.filter(token => token.category === 'trending');
 
+  // Helper function to proxy images via backend
+  const getProxiedImageUrl = (imageUrl?: string | null): string | null => {
+    if (!imageUrl) return null;
+    const base = buildApiUrl("").replace(/\/+$/, "");
+
+    if (imageUrl.endsWith('.json')) return null;
+    if (/^\/api\/image-proxy\?url=/.test(imageUrl)) return `${base}${imageUrl}`;
+    if (imageUrl.startsWith(`${base}/api/image-proxy`)) return imageUrl;
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return `${base}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+    }
+    return null;
+  };
+
+  const TokenImage = ({ symbol, image }: { symbol?: string | null, image?: string | null }) => {
+    const src = getProxiedImageUrl(image);
+    return (
+      <Dialog>
+        <DialogTrigger asChild>
+          <div className={`relative w-10 h-10 flex-shrink-0 ${src ? 'cursor-zoom-in ring-2 ring-white/70 hover:ring-white transition-shadow rounded-full' : ''}`} title={src ? 'Click to enlarge' : undefined}>
+            {src && (
+              <img
+                src={src}
+                alt={symbol || 'Token'}
+                className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            )}
+            <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+              {symbol?.charAt(0)?.toUpperCase() || 'T'}
+            </div>
+          </div>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[520px] bg-background p-0 border-0 shadow-xl">
+          {src && (
+            <img src={src} alt={symbol || 'Token'} className="max-h-[80vh] w-auto rounded-xl mx-auto" />
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
   const renderTokenCard = (token: FavoriteToken) => (
     <div key={token.mint} className="flex items-center space-x-3 p-3 bg-card/50 border border-border/20 rounded-lg hover:bg-card/70 transition-colors">
-      <div className="flex-shrink-0">
-        {token.image ? (
-          <img 
-            src={token.image} 
-            alt={token.name || token.symbol} 
-            className="w-10 h-10 rounded-full object-cover"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-              target.nextElementSibling?.classList.remove('hidden');
-            }}
-          />
-        ) : null}
-        <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-orange-500/20 to-orange-600/30 flex items-center justify-center text-orange-400 font-bold text-sm ${token.image ? 'hidden' : ''}`}>
-          {token.symbol?.charAt(0) || token.name?.charAt(0) || '?'}
-        </div>
-      </div>
-      
+      <TokenImage symbol={token.symbol} image={token.image} />
+
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground truncate">{token.name}</p>
-        <p className="text-xs text-muted-foreground">${token.symbol}</p>
+        <div className="flex items-center gap-2 font-medium text-sm">
+          <span className="truncate max-w-[16rem]" title={token.name || token.symbol}>{token.name || token.symbol}</span>
+          <button
+            type="button"
+            className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(token.mint || '');
+                toast({ title: 'Copied', description: 'Mint address copied to clipboard' });
+              } catch {}
+            }}
+            title="Copy mint address"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-xs text-muted-foreground">{token.symbol}</span>
+          {token.pool && (
+            <a
+              href={token.pool === 'pump' ? `https://pump.fun/${token.mint}` : token.pool === 'bonk' ? `https://bonk.fun/${token.mint}` : `https://solscan.io/token/${token.mint}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`text-xs px-1.5 py-0.5 rounded hover:underline ${token.pool === 'pump' ? 'text-green-500' : token.pool === 'bonk' ? 'text-orange-500' : 'text-blue-500'}`}
+              title={`View on ${token.pool === 'pump' ? 'Pump.fun' : token.pool === 'bonk' ? 'Bonk.fun' : 'Solscan'}`}
+            >
+              {token.pool === 'pump' ? 'pump.fun' : token.pool === 'bonk' ? 'bonk.fun' : 'solscan'}
+            </a>
+          )}
+        </div>
         <div className="flex items-center space-x-2 mt-1">
           <a 
             href={`https://solscan.io/token/${token.mint}`}
@@ -63,31 +117,9 @@ export default function Favorites() {
             <ExternalLinkIcon className="h-3 w-3 mr-1" />
             Solscan
           </a>
-          {token.pool === 'pump' && (
-            <a 
-              href={`https://pump.fun/${token.mint}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-green-500 hover:text-green-400 flex items-center"
-            >
-              <ExternalLinkIcon className="h-3 w-3 mr-1" />
-              pump.fun
-            </a>
-          )}
-          {token.pool === 'bonk' && (
-            <a 
-              href={`https://bonk.fun/${token.mint}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-orange-500 hover:text-orange-400 flex items-center"
-            >
-              <ExternalLinkIcon className="h-3 w-3 mr-1" />
-              bonk.fun
-            </a>
-          )}
         </div>
       </div>
-      
+
       <div className="flex items-center space-x-2">
         <div className="text-right">
           <p className="text-xs text-muted-foreground">

@@ -53,13 +53,27 @@ export function setupRoutes(app: Express): Server {
     }
   });
 
-  // Get recent migrations - Returns empty (no database)
+  // Get recent migrations - from PumpPortal in-memory store
   app.get('/api/migrations/recent', async (req, res) => {
     try {
-      res.json({ 
-        migrations: [],
-        message: 'Migrations not tracked (no database)'
+      const limit = parseInt(req.query.limit as string) || 20;
+      const migrations = pumpPortalWebSocketService.getMigrations(limit);
+      const recentTokens = pumpPortalWebSocketService.getNewTokens(200);
+
+      const data = migrations.map(m => {
+        const t = recentTokens.find(rt => rt.mint === m.tokenMint);
+        return {
+          mint: m.tokenMint,
+          name: m.tokenName,
+          symbol: m.tokenSymbol,
+          migrationTime: m.migrationTime,
+          marketCapAtMigration: m.marketCapAtMigration,
+          volumeAtMigration: m.volumeAtMigration,
+          image: t?.image || null,
+        };
       });
+
+      res.json({ count: data.length, migrations: data });
     } catch (error) {
       console.error('Error fetching migrations:', error);
       res.status(500).json({ error: 'Failed to fetch migrations' });
@@ -251,12 +265,29 @@ export function setupRoutes(app: Express): Server {
 
   app.get('/api/pumpportal/migrations', (req, res) => {
     try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const migrations = pumpPortalWebSocketService.getMigrations(limit);
+      const recentTokens = pumpPortalWebSocketService.getNewTokens(200);
+
+      const data = migrations.map(m => {
+        const t = recentTokens.find(rt => rt.mint === m.tokenMint);
+        return {
+          mint: m.tokenMint,
+          name: m.tokenName,
+          symbol: m.tokenSymbol,
+          migrationTime: m.migrationTime,
+          marketCapAtMigration: m.marketCapAtMigration,
+          volumeAtMigration: m.volumeAtMigration,
+          image: t?.image || null,
+        };
+      });
+
       res.json({
         success: true,
-        data: [],
+        data,
         stats: {
-          total: 0,
-          isConnected: false,
+          total: pumpPortalWebSocketService.getStats().totalMigrations,
+          isConnected: pumpPortalWebSocketService.isConnected(),
         }
       });
     } catch (error) {

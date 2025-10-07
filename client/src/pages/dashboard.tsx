@@ -13,7 +13,26 @@ import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
 // Token Image Component - with IPFS gateway fallbacks
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  const imageUrl = directImage || uri; // Fallback to URI if no direct image
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [attempted, setAttempted] = useState(false);
+  
+  useEffect(() => {
+    // Priority 1: Use direct image if available
+    if (directImage) {
+      setImageUrl(directImage);
+      return;
+    }
+    
+    // Priority 2: Use URI (most URIs are direct IPFS image links)
+    if (uri) {
+      // Convert to faster gateway immediately
+      let img = uri;
+      if (img.includes('ipfs.io/ipfs/')) {
+        img = img.replace('ipfs.io', 'cloudflare-ipfs.com');
+      }
+      setImageUrl(img);
+    }
+  }, [directImage, uri]);
   
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
@@ -23,17 +42,24 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
           alt={symbol}
           className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
           loading="lazy"
+          crossOrigin="anonymous"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            // Try alternate IPFS gateways if primary fails
-            if (target.src.includes('ipfs.io')) {
-              target.src = target.src.replace('ipfs.io', 'dweb.link');
-            } else if (target.src.includes('dweb.link')) {
-              target.src = target.src.replace('dweb.link', 'cf-ipfs.com');
-            } else if (target.src.includes('cf-ipfs.com')) {
-              target.src = target.src.replace('cf-ipfs.com', 'gateway.pinata.cloud');
+            if (!attempted) {
+              setAttempted(true);
+              // Try nftstorage gateway as fallback
+              if (target.src.includes('cloudflare-ipfs.com/ipfs/')) {
+                const hash = target.src.split('/ipfs/')[1];
+                target.src = `https://nftstorage.link/ipfs/${hash}`;
+              } else if (target.src.includes('nftstorage.link/ipfs/')) {
+                const hash = target.src.split('/ipfs/')[1];
+                target.src = `https://ipfs.io/ipfs/${hash}`;
+              } else {
+                // All gateways failed, hide image
+                target.style.display = 'none';
+              }
             } else {
-              // All gateways failed, hide image
+              // Already tried fallbacks, hide image
               target.style.display = 'none';
             }
           }}

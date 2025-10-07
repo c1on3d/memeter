@@ -11,36 +11,20 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - Uses backend proxy once deployed
+// Helper function to get proxied image URL through backend (bypasses CORS)
+const getProxiedImageUrl = (imageUrl: string | null | undefined, backendUrl: string): string | null => {
+  if (!imageUrl) return null;
+  // Route image through backend proxy to avoid CORS
+  return `${backendUrl}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+};
+
+// Token Image Component
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  const [proxyAvailable, setProxyAvailable] = useState(false);
+  const backendUrl = buildApiUrl(''); // Get backend URL from env
+  const imageUrl = directImage || uri;
   
-  useEffect(() => {
-    // Check if backend proxy is available
-    fetch(buildApiUrl('/api/image-proxy?url=test'))
-      .then(r => setProxyAvailable(r.status === 400)) // 400 = proxy exists (missing url param)
-      .catch(() => setProxyAvailable(false));
-  }, []);
-  
-  const getImageSrc = () => {
-    // Use direct non-IPFS images (like Twitter images)
-    if (directImage && !directImage.includes('ipfs')) {
-      return directImage;
-    }
-    
-    // If proxy is available, use it for IPFS images
-    if (proxyAvailable) {
-      const imageUrl = directImage || uri;
-      if (imageUrl) {
-        return `${buildApiUrl('/api/image-proxy')}?url=${encodeURIComponent(imageUrl)}`;
-      }
-    }
-    
-    // Otherwise, letter avatars will show (no CORS issues)
-    return null;
-  };
-  
-  const imageSrc = getImageSrc();
+  // Get proxied image URL if we have a backend configured
+  const imageSrc = backendUrl && imageUrl ? getProxiedImageUrl(imageUrl, backendUrl) : null;
   
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
@@ -53,6 +37,7 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             target.style.display = 'none';
+            console.log(`Image proxy failed for ${symbol}:`, imageSrc);
           }}
         />
       )}

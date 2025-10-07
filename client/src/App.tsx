@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { FavoritesProvider } from "@/contexts/FavoritesContext";
-import { HiddenTokensProvider } from "@/contexts/HiddenTokensContext";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Favorites from "@/pages/favorites";
@@ -28,10 +27,8 @@ function App() {
       <TooltipProvider>
         <ThemeProvider>
           <FavoritesProvider>
-            <HiddenTokensProvider>
-              <Toaster />
-              <Router />
-            </HiddenTokensProvider>
+            <Toaster />
+            <Router />
           </FavoritesProvider>
         </ThemeProvider>
       </TooltipProvider>

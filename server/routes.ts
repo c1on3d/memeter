@@ -1,11 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { storage } from "./storage";
-import { z } from "zod";
-import { tokens, tokenMetrics } from '@shared/schema';
-import { db } from './db';
-import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { pumpPortalWebSocketService } from './services/pumpPortalWebSocketService';
 
 export function setupRoutes(app: Express): Server {
@@ -35,89 +30,22 @@ export function setupRoutes(app: Express): Server {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      services: {
-        database: db ? 'connected' : 'unavailable'
-      }
+      pumpPortal: pumpPortalWebSocketService.isConnected() ? 'connected' : 'disconnected'
     });
   });
 
-  // Get tokens with pagination and filtering
+  // Get tokens - Returns tokens from in-memory storage (PumpPortal)
   app.get('/api/tokens', async (req, res) => {
     try {
-      const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 100;
-      const offset = (page - 1) * limit;
-      const search = req.query.search as string;
-      const riskLevel = req.query.riskLevel as string;
-      const minHolders = parseInt(req.query.minHolders as string) || 0;
-
-      // If database is not available, return empty array
-      if (!db) {
-        return res.json({
-          tokens: [],
-          total: 0,
-          page,
-          limit,
-          totalPages: 0,
-          message: 'Database not available'
-        });
-      }
-
-      // Database query logic
-      let whereConditions = [];
       
-      if (search) {
-        whereConditions.push(sql`${tokens.name} ILIKE ${`%${search}%`} OR ${tokens.symbol} ILIKE ${`%${search}%`} OR ${tokens.address} ILIKE ${`%${search}%`}`);
-      }
+      // Get tokens from in-memory PumpPortal service
+      const tokens = pumpPortalWebSocketService.getNewTokens(limit);
       
-      if (riskLevel) {
-        whereConditions.push(sql`${tokenMetrics.riskScore} >= ${parseInt(riskLevel)}`);
-      }
-      
-      if (minHolders > 0) {
-        whereConditions.push(sql`${tokenMetrics.holderCount} >= ${minHolders}`);
-      }
-
-      const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
-
-      const [tokensResult, countResult] = await Promise.all([
-        db
-          .select({
-            token: tokens,
-            metrics: tokenMetrics,
-          })
-          .from(tokens)
-          .leftJoin(tokenMetrics, eq(tokens.id, tokenMetrics.tokenId))
-          .where(whereClause)
-          .orderBy(desc(tokens.createdAt))
-          .limit(limit)
-          .offset(offset),
-        db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(tokens)
-          .where(whereClause)
-      ]);
-
-      const total = countResult[0]?.count || 0;
-
-      const tokensWithMetrics = tokensResult.map((result: any) => ({
-        ...result.token,
-        metrics: result.metrics || {
-          marketCap: '0',
-          volume24h: '0',
-          holderCount: 0,
-          riskScore: 5,
-          priceChange24h: '0',
-          liquidityUsd: '0'
-        }
-      }));
-
       res.json({
-        tokens: tokensWithMetrics,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit)
+        tokens,
+        total: tokens.length,
+        message: 'In-memory storage (no database)'
       });
     } catch (error) {
       console.error('Error fetching tokens:', error);
@@ -125,45 +53,24 @@ export function setupRoutes(app: Express): Server {
     }
   });
 
-  // Get recent migrations
+  // Get recent migrations - Returns empty (no database)
   app.get('/api/migrations/recent', async (req, res) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 10;
-      
-      // If database is not available, return empty array
-      if (!db) {
-        return res.json({ migrations: [] });
-      }
-      
-      const migrations = await storage.getRecentMigrations(limit);
-      
-      res.json({ migrations });
+      res.json({ 
+        migrations: [],
+        message: 'Migrations not tracked (no database)'
+      });
     } catch (error) {
       console.error('Error fetching migrations:', error);
       res.status(500).json({ error: 'Failed to fetch migrations' });
     }
   });
 
-  // Analytics endpoints
+  // Analytics endpoints - Simple in-memory stats
   app.get('/api/analytics/recent-tokens', async (req, res) => {
     try {
-      // If database is not available, return 0
-      if (!db) {
-        return res.json({ recentTokens: 0 });
-      }
-
-      const twentyFourHoursAgo = new Date();
-      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
-
-      const [result] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(tokens)
-        .where(gte(tokens.createdAt, twentyFourHoursAgo));
-
-      const count = result?.count || 0;
-      console.log(`Recent tokens count (24h): ${count}`);
-      
-      res.json({ recentTokens: count });
+      const stats = pumpPortalWebSocketService.getStats();
+      res.json({ recentTokens: stats.totalTokens });
     } catch (error) {
       console.error('Recent tokens analytics error:', error);
       res.status(500).json({ error: 'Failed to get recent tokens count' });
@@ -172,21 +79,8 @@ export function setupRoutes(app: Express): Server {
 
   app.get('/api/analytics/total-tokens', async (req, res) => {
     try {
-      // If database is not available, return fallback count
-      if (!db) {
-        return res.json({ totalTokens: 0 });
-      }
-
-      const result = await db
-        .select({
-          totalCount: sql<number>`count(*)::int`
-        })
-        .from(tokens);
-
-      const count = result[0]?.totalCount || 0;
-      console.log(`Total tokens count (all time): ${count}`);
-      
-      res.json({ totalTokens: count });
+      const stats = pumpPortalWebSocketService.getStats();
+      res.json({ totalTokens: stats.totalTokens });
     } catch (error) {
       console.error('Total tokens analytics error:', error);
       res.status(500).json({ error: 'Failed to get total tokens count' });
@@ -267,7 +161,7 @@ export function setupRoutes(app: Express): Server {
     }
   });
 
-  // Token search endpoint
+  // Token search endpoint - Search in-memory tokens
   app.get('/api/tokens/search/:address', async (req, res) => {
     try {
       const { address } = req.params;
@@ -276,20 +170,15 @@ export function setupRoutes(app: Express): Server {
         return res.status(400).json({ error: 'Address parameter is required' });
       }
 
-      // Try to find token by address in database
-      if (db) {
-        const [token] = await db
-          .select()
-          .from(tokens)
-          .where(eq(tokens.address, address))
-          .limit(1);
+      // Search in PumpPortal tokens
+      const allTokens = pumpPortalWebSocketService.getNewTokens(100);
+      const foundToken = allTokens.find(t => t.mint === address);
 
-        if (token) {
-          return res.json({ token });
-        }
+      if (foundToken) {
+        return res.json({ token: foundToken });
       }
 
-      res.status(404).json({ error: 'Token not found' });
+      res.status(404).json({ error: 'Token not found in recent tokens' });
     } catch (error) {
       console.error('Error searching for token:', error);
       res.status(500).json({ error: 'Failed to search for token' });

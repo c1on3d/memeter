@@ -11,28 +11,37 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 
-// Token Image Component - Uses Pump.fun CDN for reliable images
+// Token Image Component - Displays IPFS images with fast gateway
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  
-  useEffect(() => {
-    // Strategy 1: Use direct image if available
+  // Get image URL - use direct image or convert IPFS URI to fast gateway
+  const getImageUrl = () => {
     if (directImage) {
       let img = directImage;
       if (img.includes('ipfs.io/ipfs/')) {
-        img = img.replace('ipfs.io', 'cf-ipfs.com');
-      } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
-        img = img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
+        return img.replace('ipfs.io', 'cf-ipfs.com');
       }
-      setImageUrl(img);
-      return;
+      return img;
     }
     
-    // Strategy 2: Use Pump.fun's image CDN (most reliable!)
-    const pumpFunImage = `https://pump.fun/cdn-cgi/image/width=200/${mint}`;
-    setImageUrl(pumpFunImage);
+    if (uri) {
+      // URI is often the direct IPFS image link
+      let img = uri;
+      // Use faster CloudFlare IPFS gateway
+      if (img.includes('ipfs.io/ipfs/')) {
+        return img.replace('ipfs.io', 'cf-ipfs.com');
+      } else if (img.includes('gateway.pinata.cloud/ipfs/')) {
+        return img.replace('gateway.pinata.cloud', 'cf-ipfs.com');
+      } else if (img.startsWith('ipfs://')) {
+        const hash = img.replace('ipfs://', '');
+        return `https://cf-ipfs.com/ipfs/${hash}`;
+      }
+      return img;
+    }
     
-  }, [mint, symbol, uri, directImage]);
+    return null;
+  };
+  
+  const imageUrl = getImageUrl();
   
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
@@ -41,6 +50,7 @@ function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: 
           src={imageUrl}
           alt={symbol}
           className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
+          loading="lazy"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             target.style.display = 'none';

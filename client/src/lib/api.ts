@@ -23,10 +23,14 @@ console.log('✅ API_BASE_URL set to:', API_BASE_URL);
 
 // Helper function to build API URLs
 export const buildApiUrl = (endpoint: string): string => {
-  const baseUrl = API_BASE_URL;
+  const baseUrl = API_BASE_URL.replace(/\/+$/, ''); // Remove trailing slashes
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   
   if (baseUrl) {
+    // Handle empty endpoint case
+    if (!endpoint || endpoint === '/') {
+      return baseUrl;
+    }
     return `${baseUrl}${cleanEndpoint}`;
   }
   

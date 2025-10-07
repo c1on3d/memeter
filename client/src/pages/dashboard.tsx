@@ -14,17 +14,37 @@ import { buildApiUrl, API_ENDPOINTS } from "@/lib/api";
 // Helper function to get proxied image URL through backend (bypasses CORS)
 const getProxiedImageUrl = (imageUrl: string | null | undefined, backendUrl: string): string | null => {
   if (!imageUrl) return null;
-  // Route image through backend proxy to avoid CORS
-  return `${backendUrl}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+  if (imageUrl.endsWith('.json')) return null; // don't try to render metadata as image
+
+  // Normalize backend URL (no trailing slash)
+  const base = backendUrl.replace(/\/+$/, '');
+
+  // If backend already gave a proxied path like "/api/image-proxy?url=..."
+  if (/^\/api\/image-proxy\?url=/.test(imageUrl)) {
+    // Convert relative proxy URL to absolute
+    return `${base}${imageUrl}`;
+  }
+
+  // If it's already a full proxy URL from backend, use as-is
+  if (imageUrl.startsWith(base + '/api/image-proxy')) {
+    return imageUrl;
+  }
+
+  // If it's a direct HTTP/HTTPS URL, proxy it
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+    return `${base}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+  }
+
+  // Otherwise return null (invalid URL)
+  return null;
 };
 
 // Token Image Component
 function TokenImage({ mint, symbol, uri, directImage }: { mint: string, symbol: string, uri?: string | null, directImage?: string | null }) {
-  const backendUrl = buildApiUrl(''); // Get backend URL from env
-  const imageUrl = directImage || uri;
-  
-  // Get proxied image URL if we have a backend configured
-  const imageSrc = backendUrl && imageUrl ? getProxiedImageUrl(imageUrl, backendUrl) : null;
+  const backendUrl = buildApiUrl('');
+  // Prefer backend-provided image; ignore uri if it's metadata
+  const rawImage = directImage || (uri && !uri.endsWith('.json') ? uri : null);
+  const imageSrc = backendUrl ? getProxiedImageUrl(rawImage, backendUrl) : null;
   
   return (
     <div className="relative w-10 h-10 flex-shrink-0">
@@ -103,7 +123,7 @@ export default function Dashboard() {
   const { data: dexScreenerData, refetch: refetchDexScreener } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.DEXSCREENER_LATEST));
+      const response = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
       if (!response.ok) throw new Error('Failed to fetch DexScreener data');
       return response.json();
     },
@@ -125,7 +145,12 @@ export default function Dashboard() {
   const tokensPerHour = Math.floor(totalTokens / 24) || 0;
   const totalMigrations = 0; // Backend doesn't have migrations endpoint yet
   const readyToMigrate = 0;
-  const trendingCount = dexScreenerData?.pairs?.length || 0;
+// Build trending list using 6h performance from Solana pairs
+const solanaPairs = Array.isArray(dexScreenerData?.tokens) ? dexScreenerData.tokens : [];
+  const trendingPairs = [...solanaPairs]
+    .sort((a: any, b: any) => ((b?.priceChange?.h6 ?? -Infinity) - (a?.priceChange?.h6 ?? -Infinity)))
+    .slice(0, 30);
+  const trendingCount = trendingPairs.length;
 
   // Debug logging
   useEffect(() => {
@@ -309,7 +334,7 @@ export default function Dashboard() {
                   <p className="text-3xl font-bold text-purple-600">{readyToMigrate}</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     <span className="inline-flex items-center">
-                      <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mr-1 animate-pulse"></div>
+                      <span className="w-1.5 h-1.5 bg-purple-500 rounded-full mr-1 animate-pulse block"></span>
                       Ready
                     </span>
                   </p>
@@ -392,7 +417,24 @@ export default function Dashboard() {
                           
                           <div>
                             <div className="font-medium text-sm">{token.name || token.symbol || 'Unknown'}</div>
-                            <div className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</span>
+                              {launchpadUrl && (
+                                <a 
+                                  href={launchpadUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={`text-xs px-1.5 py-0.5 rounded hover:underline ${
+                                    token.pool === 'pump' 
+                                      ? 'text-green-500' 
+                                      : 'text-blue-500'
+                                  }`}
+                                  title={`View on ${token.pool === 'pump' ? 'Pump.fun' : 'Bonk.fun'}`}
+                                >
+                                  {token.pool === 'pump' ? 'pump.fun' : 'bonk.fun'}
+                                </a>
+                              )}
+                            </div>
                           </div>
                         </div>
                         
@@ -414,23 +456,6 @@ export default function Dashboard() {
                             >
                               <ExternalLinkIcon className="h-3.5 w-3.5" />
                             </a>
-                            
-                            {/* Launchpad Link */}
-                            {launchpadUrl && (
-                              <a 
-                                href={launchpadUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={`text-xs px-1.5 py-0.5 rounded ${
-                                  token.pool === 'pump' 
-                                    ? 'text-green-500 hover:bg-green-500/10' 
-                                    : 'text-blue-500 hover:bg-blue-500/10'
-                                }`}
-                                title={`View on ${token.pool === 'pump' ? 'Pump.fun' : 'Bonk.fun'}`}
-                              >
-                                {token.pool === 'pump' ? 'P' : 'B'}
-                              </a>
-                            )}
                             
                             {/* Favorite Button */}
                             <Button
@@ -513,8 +538,8 @@ export default function Dashboard() {
             </div>
             
             <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
-              {dexScreenerData?.pairs && dexScreenerData.pairs.length > 0 ? (
-                dexScreenerData.pairs.slice(0, 30).map((pair: any, index: number) => {
+              {trendingPairs.length > 0 ? (
+                trendingPairs.map((pair: any, index: number) => {
                   return (
                     <div key={pair.pairAddress || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
                       <div className="flex items-center justify-between">
@@ -546,12 +571,12 @@ export default function Dashboard() {
                         <div className="flex items-center space-x-2">
                           <div className="text-right">
                             <div className={`text-sm font-medium ${
-                              (pair.priceChange?.h24 || 0) >= 0 ? 'text-green-500' : 'text-red-500'
+                              (pair.priceChange?.h6 || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                             }`}>
-                              {(pair.priceChange?.h24 || 0) >= 0 ? '+' : ''}{(pair.priceChange?.h24 || 0).toFixed(2)}%
+                              {(pair.priceChange?.h6 || 0) >= 0 ? '+' : ''}{(pair.priceChange?.h6 || 0).toFixed(2)}% (6h)
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              ${(pair.volume?.h24 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              ${(pair.volume?.h6 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol (6h)
                             </div>
                           </div>
                           

@@ -87,22 +87,29 @@ npm start           # Start production server
 
 ### Setup PostgreSQL (Optional)
 
-See [database/README.md](./src/database/README.md) for detailed setup instructions.
+The backend supports multiple PostgreSQL configurations:
 
-**Quick Start:**
+- **Google Cloud SQL** (recommended for production) - See [GOOGLE_CLOUD_SETUP.md](../GOOGLE_CLOUD_SETUP.md)
+- **Local PostgreSQL** - See [DATABASE.md](./DATABASE.md)
+- **Docker Compose** - Run `docker-compose up -d`
 
-1. Install PostgreSQL
-2. Create database: `CREATE DATABASE memeter;`
-3. Configure `.env`:
+**Quick Start (Local Development):**
+
+1. Use Docker: `docker-compose up -d`
+2. Configure `.env`:
    ```env
    ENABLE_DATABASE=true
    DB_HOST=localhost
    DB_PORT=5432
    DB_NAME=memeter
    DB_USER=postgres
-   DB_PASSWORD=your_password
+   DB_PASSWORD=postgres
    ```
-4. Start server - tables are created automatically
+3. Start server - tables are created automatically
+
+**Production (Google Cloud SQL):**
+
+See [GOOGLE_CLOUD_SETUP.md](../GOOGLE_CLOUD_SETUP.md) for comprehensive setup guide.
 
 ### Database Models
 

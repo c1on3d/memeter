@@ -25,6 +25,6 @@ export default defineConfig({
       deny: ["**/.*"],
     },
     // Proxy disabled - using VITE_API_URL from .env instead
-    // This allows direct connection to Render backend
+    // This allows direct connection to backend API
   },
 });

@@ -1,0 +1,27 @@
+# Docker Compose for Local Development Only
+# This is NOT used for production - use Google Cloud SQL instead
+# See GOOGLE_CLOUD_SETUP.md for production setup
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: memeter-postgres
+    environment:
+      POSTGRES_DB: memeter
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

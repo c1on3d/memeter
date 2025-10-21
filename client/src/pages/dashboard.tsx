@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useSolPrice } from "@/hooks/useSolPrice";
-import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy, Globe, Twitter, Send, Users, Youtube, Instagram, Music2, MessageCircle } from "lucide-react";
+import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy, Globe, Twitter, Send, Users, Youtube, Instagram, Music2, MessageCircle, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
@@ -97,6 +97,7 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Authentication check - redirect to landing if not authenticated
   useEffect(() => {
@@ -106,6 +107,22 @@ export default function Dashboard() {
       setLocation('/');
     }
   }, [setLocation]);
+
+  // Click away handler to close search results
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setSearchQuery("");
+        setSearchResults([]);
+        setSearchError(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const { theme } = useTheme();
   const { toast } = useToast();
@@ -266,59 +283,17 @@ export default function Dashboard() {
     refetchInterval: 15000,
   });
 
-  // Fetch DexScreener trending (backend-first with public fallback)
+  // Fetch DexScreener trending tokens (same format as new tokens)
   const { data: dexScreenerData, refetch: refetchDexScreener, isLoading: isLoadingTrending, error: trendingError } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
-      // 1) Try backend trending endpoint first
-      try {
-        const res = await fetch(buildApiUrl('/api/dexscreener/trending/solana'));
-        if (res.ok) {
-          const data = await res.json();
-          const pairs = Array.isArray(data?.pairs) ? data.pairs : (Array.isArray(data?.tokens) ? data.tokens : []);
-          console.log('✅ Backend trending pairs:', pairs.length);
-          if (pairs.length > 0) return { pairs };
-        }
-      } catch (e) {
-        console.warn('Backend trending fetch failed, falling back to public API');
-      }
-
-      // 2) Fallback: DexScreener public API
-      console.log('🌐 Fetching DexScreener public API...');
-      const ds = await fetch('https://api.dexscreener.com/latest/dex/tokens/solana');
-      if (!ds.ok) throw new Error('Failed to fetch DexScreener data');
-      const json = await ds.json();
-      let pairs = Array.isArray(json?.pairs) ? json.pairs : [];
-      let normalized = pairs
-        .map((p: any) => ({
-          ...p,
-          priceChange: { ...(p?.priceChange || {}), h6: (p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? p?.priceChange?.h1 ?? 0) },
-          trendingScoreH24: 0,
-        }))
-        .filter((p: any) => !!p?.pairAddress && !!p?.baseToken?.symbol);
-      console.log('✅ Public API pairs:', normalized.length);
-      if (normalized.length > 0) return { pairs: normalized };
-
-      // 3) Last resort: DexScreener search (broader), filter to Solana
-      console.log('🔎 Falling back to DexScreener search API...');
-      const sr = await fetch('https://api.dexscreener.com/latest/dex/search?q=solana');
-      if (sr.ok) {
-        const sj = await sr.json();
-        const spairs = Array.isArray(sj?.pairs) ? sj.pairs : [];
-        const solOnly = spairs.filter((p: any) => (p?.chainId || p?.chain || '').toString().toLowerCase() === 'solana');
-        const snorm = solOnly
-          .map((p: any) => ({
-            ...p,
-            priceChange: { ...(p?.priceChange || {}), h6: (p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? p?.priceChange?.h1 ?? 0) },
-            trendingScoreH24: 0,
-          }))
-          .filter((p: any) => !!p?.pairAddress && !!p?.baseToken?.symbol);
-        console.log('✅ Search API pairs (Solana):', snorm.length);
-        if (snorm.length > 0) return { pairs: snorm };
-      }
-
-      // If everything failed, return empty
-      return { pairs: [] };
+      console.log('🔥 Fetching trending tokens from backend...');
+      const res = await fetch(buildApiUrl('/api/dexscreener/trending/solana'));
+      if (!res.ok) throw new Error('Failed to fetch trending tokens');
+      const data = await res.json();
+      const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
+      console.log('✅ Trending tokens received:', tokens.length);
+      return { tokens };
     },
     refetchInterval: 20000, // Refetch every 20 seconds
   });
@@ -341,29 +316,21 @@ export default function Dashboard() {
   const migrations = migrationsData?.migrations || [];
   const totalMigrations = migrations.length;
   
-  // Build trending list using DexScreener trendingScoreH24 (fallback to 24h volume)
-  const solanaPairs = Array.isArray((dexScreenerData as any)?.pairs)
-    ? (dexScreenerData as any).pairs
+  // Get trending tokens (already sorted by trendingScoreH6 from backend)
+  const trendingTokens = Array.isArray((dexScreenerData as any)?.tokens)
+    ? (dexScreenerData as any).tokens
     : [];
-  const trendingPairs = [...solanaPairs]
-    .sort((a: any, b: any) => {
-      const sb = b?.trendingScoreH24 ?? -Infinity;
-      const sa = a?.trendingScoreH24 ?? -Infinity;
-      if (sb !== sa) return sb - sa;
-      return (b?.volume?.h24 || 0) - (a?.volume?.h24 || 0);
-    })
-    .slice(0, 30);
-  const trendingCount = trendingPairs.length;
+  const trendingCount = trendingTokens.length;
   
-  // Calculate Solana Volume (24h total from trending pairs)
-  const solanaVolume24h = solanaPairs.reduce((sum: number, p: any) => sum + (p?.volume?.h24 || 0), 0);
+  // Calculate Solana Volume (24h total from trending tokens)
+  const solanaVolume24h = trendingTokens.reduce((sum: number, t: any) => sum + (t?.volume24h || 0), 0);
   
   // Migration Threshold (standard Raydium threshold in SOL)
   const migrationThreshold = 412; // SOL
   
   // Market Sentiment (% of trending tokens with positive 6h change)
-  const positiveCount = trendingPairs.filter((p: any) => (p?.priceChange?.h6 || 0) > 0).length;
-  const marketSentiment = trendingPairs.length > 0 ? Math.round((positiveCount / trendingPairs.length) * 100) : 0;
+  const positiveCount = trendingTokens.filter((t: any) => (t?.priceChange?.h6 || 0) > 0).length;
+  const marketSentiment = trendingTokens.length > 0 ? Math.round((positiveCount / trendingTokens.length) * 100) : 0;
 
   // Sentiment color classes (dynamic)
   const sentimentStyles = marketSentiment >= 60
@@ -381,9 +348,9 @@ export default function Dashboard() {
       totalTokens,
       hasData: !!newTokensData,
       migrations: migrations.length,
-      trendingPairs: trendingPairs.length,
+      trendingTokens: trendingTokens.length,
     });
-  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData, migrations.length, trendingPairs.length]);
+  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData, migrations.length, trendingTokens.length]);
 
   // Debounced search for SPL tokens (by address or symbol/name)
   useEffect(() => {
@@ -400,6 +367,7 @@ export default function Dashboard() {
       setSearchError(null);
       try {
         const combined: SearchResult[] = [];
+        const isAddressSearch = isSolAddress(q);
 
         // 1) PumpPortal tokens (from in-memory new/all tokens already in page)
         const pumpSource: any[] = [
@@ -407,31 +375,36 @@ export default function Dashboard() {
           ...(Array.isArray(allTokens) ? allTokens : [])
         ];
 
-        if (isSolAddress(q)) {
+        if (isAddressSearch) {
+          // Address search: Only show original token deployment
           const pumpMatches = pumpSource.filter((t) => (t?.mint || '').trim() === q);
-          pumpMatches.slice(0, 20).forEach((t) => combined.push({ type: 'pump', token: t }));
+          pumpMatches.slice(0, 1).forEach((t) => combined.push({ type: 'pump', token: t }));
+          
+          // If not found in PumpPortal, try DexScreener but only show first result (original token)
+          if (combined.length === 0) {
+            const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DEXSCREENER_TOKEN}/${q}`));
+            if (res.ok) {
+              const data = await res.json();
+              const pairs = data?.data?.pairs || data?.pairs || [];
+              // Only add the first pair (most likely the original deployment)
+              if (pairs.length > 0) {
+                combined.push({ type: 'dex', pair: pairs[0] });
+              }
+            }
+          }
         } else {
+          // Name/symbol search: Show both PumpPortal and DexScreener results
           const ql = q.toLowerCase();
           const pumpMatches = pumpSource.filter((t) =>
             (t?.symbol || '').toLowerCase().includes(ql) || (t?.name || '').toLowerCase().includes(ql)
           );
           pumpMatches.slice(0, 20).forEach((t) => combined.push({ type: 'pump', token: t }));
-        }
-
-        // 2) DexScreener data
-        if (isSolAddress(q)) {
-          const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DEXSCREENER_TOKEN}/${q}`));
-          if (res.ok) {
-            const data = await res.json();
-            const pairs = data?.data?.pairs || data?.pairs || [];
-            pairs.slice(0, 20).forEach((p: any) => combined.push({ type: 'dex', pair: p }));
-          }
-        } else {
+          
+          // 2) DexScreener data (only for name/symbol searches)
           const res = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
           if (res.ok) {
             const data = await res.json();
             const pairs = data?.tokens || data?.pairs || [];
-            const ql = q.toLowerCase();
             const filtered = pairs.filter((p: any) =>
               (p?.baseToken?.symbol || '').toLowerCase().includes(ql) ||
               (p?.baseToken?.name || '').toLowerCase().includes(ql)
@@ -509,7 +482,7 @@ export default function Dashboard() {
             </div>
             
             <div className="flex items-center space-x-4">
-              <div className="relative">
+              <div className="relative" ref={searchContainerRef}>
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
                   type="text"
@@ -519,7 +492,7 @@ export default function Dashboard() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 {(searchLoading || searchError || searchResults.length > 0) && (
-                  <div className="absolute mt-2 w-[28rem] max-h-96 overflow-y-auto z-50 bg-card/95 border border-border/50 rounded-lg shadow-lg p-2">
+                  <div className={`absolute mt-2 w-[28rem] max-h-96 overflow-y-auto z-50 border border-border/50 rounded-lg shadow-lg p-2 ${isSolAddress(searchQuery.trim()) ? 'bg-black' : 'bg-card/95'}`}>
                     {searchLoading && (
                       <div className="py-4 text-sm text-muted-foreground text-center">Searching…</div>
                     )}
@@ -542,27 +515,27 @@ export default function Dashboard() {
                             className="flex items-center justify-between gap-3 px-2 py-2 rounded hover:bg-accent/30 transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              <div className="relative w-8 h-8">
+                              <div className="relative w-10 h-10 flex-shrink-0">
                                 {pair?.info?.imageUrl && (
                                   <img
                                     src={pair.info.imageUrl}
                                     alt={pair?.baseToken?.symbol}
-                                    className="absolute inset-0 w-8 h-8 rounded-full object-cover"
+                                    className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10 ring-2 ring-white/20"
                                     onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
                                   />
                                 )}
-                                <div className="absolute inset-0 w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-[10px] font-bold">
+                                <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
                                   {(pair?.baseToken?.symbol || 'T').slice(0, 2).toUpperCase()}
                   </div>
                               </div>
-                              <div className="flex flex-col">
-                                <span className="text-sm font-medium">
-                                  {pair?.baseToken?.name || pair?.baseToken?.symbol || 'Unknown'}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {pair?.baseToken?.symbol} • {pair?.pairAddress?.slice(0, 4)}…{pair?.pairAddress?.slice(-4)}
-                                </span>
-                              </div>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium">
+                                {pair?.baseToken?.name || pair?.baseToken?.symbol || 'Unknown'}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {pair?.baseToken?.symbol}
+                              </span>
+                            </div>
                             </div>
                             <div className="text-right">
                               <div className={`text-xs font-semibold ${((pair?.priceChange?.h6 || 0) >= 0) ? 'text-green-500' : 'text-red-500'}`}>
@@ -595,16 +568,16 @@ export default function Dashboard() {
                           className="flex items-center justify-between gap-3 px-2 py-2 rounded hover:bg-accent/30 transition-colors"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="relative w-8 h-8">
+                            <div className="relative w-10 h-10 flex-shrink-0">
                               {proxiedImg && (
                                 <img
                                   src={proxiedImg}
                                   alt={t?.symbol}
-                                  className="absolute inset-0 w-8 h-8 rounded-full object-cover"
+                                  className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10 ring-2 ring-white/20"
                                   onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
                                 />
                               )}
-                              <div className="absolute inset-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-[10px] font-bold">
+                              <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
                                 {(t?.symbol || 'T').slice(0, 2).toUpperCase()}
                               </div>
                             </div>
@@ -613,7 +586,7 @@ export default function Dashboard() {
                                 {t?.name || t?.symbol || 'Unknown'}
                               </span>
                               <span className="text-xs text-muted-foreground">
-                                {t?.symbol} • {t?.mint?.slice(0, 4)}…{t?.mint?.slice(-4)}
+                                {t?.symbol}
                               </span>
                             </div>
                           </div>
@@ -652,6 +625,21 @@ export default function Dashboard() {
                   <Star className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
                   Favorites
                 </Link>
+              </Button>
+              
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-purple-500/10 hover:text-purple-500 hover:border-purple-500/20 hover:shadow-purple-500/25"
+                onClick={() => {
+                  toast({
+                    title: "Agent Coming Soon",
+                    description: "AI-powered token analysis agent will be available soon!",
+                  });
+                }}
+              >
+                <Bot className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
+                Agent
               </Button>
               
               <Button 
@@ -841,73 +829,31 @@ export default function Dashboard() {
                                     : platform === 'reddit' ? <MessageCircle className="h-3.5 w-3.5" />
                                     : platform === 'tiktok' ? <Music2 className="h-3.5 w-3.5" />
                                     : <Globe className="h-3.5 w-3.5" />;
-                                  icons.push(
-                                    <HoverCard openDelay={150} closeDelay={100} key="web_hover">
-                                      <HoverCardTrigger asChild>
-                                        <a key="web" href={website} target="_blank" rel="noopener noreferrer" title="Website" className="text-muted-foreground hover:text-foreground">
-                                          {icon}
-                                        </a>
-                                      </HoverCardTrigger>
-                                      <HoverCardContent side="left" align="start" className="w-[420px] p-3 bg-card/95 border shadow-xl">
-                                        <div className="text-xs text-muted-foreground mb-2">Website</div>
-                                        <div className="text-sm break-words leading-snug">{website}</div>
-                                      </HoverCardContent>
-                                    </HoverCard>
+                              icons.push(
+                                    <a key="web" href={website} target="_blank" rel="noopener noreferrer" title="Website" className="text-muted-foreground hover:text-foreground">
+                                      {icon}
+                                    </a>
                                   );
                                 }
                                 if (twitter) {
                                   if (looksLikeTwitterCommunity(twitter)) {
                                     icons.push(
-                                      <HoverCard openDelay={150} closeDelay={100}>
-                                        <HoverCardTrigger asChild>
-                                          <a key="twcomm" href={twitter} target="_blank" rel="noopener noreferrer" title="Twitter Community" className="text-muted-foreground hover:text-foreground">
-                                            <Users className="h-3.5 w-3.5" />
-                                          </a>
-                                        </HoverCardTrigger>
-                                        <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
-                                          <div className="text-xs text-muted-foreground mb-1">Twitter Community</div>
-                                          <div className="text-sm">Preview</div>
-                                        </HoverCardContent>
-                                      </HoverCard>
+                                      <a key="twcomm" href={twitter} target="_blank" rel="noopener noreferrer" title="Twitter Community" className="text-muted-foreground hover:text-foreground">
+                                        <Users className="h-3.5 w-3.5" />
+                                      </a>
                                     );
                                   } else {
                                     icons.push(
-                                      <HoverCard openDelay={150} closeDelay={100} key="tw_hover">
-                                        <HoverCardTrigger asChild>
-                                          <a key="tw" href={twitter} target="_blank" rel="noopener noreferrer" title={looksLikeTweet(twitter) ? 'Tweet' : 'Twitter'} className="text-muted-foreground hover:text-foreground">
-                                            <Twitter className="h-3.5 w-3.5" />
-                                          </a>
-                                        </HoverCardTrigger>
-                                        <HoverCardContent side="left" align="start" className="w-[380px] p-2 bg-card/95 border shadow-xl">
-                                          {looksLikeTweetUrl(twitter) ? (
-                                            <div className="w-full">
-                                              <iframe
-                                                src={`https://twitframe.com/show?url=${encodeURIComponent(normalizeTwitterUrl(twitter))}`}
-                                                className="w-full h-[420px] rounded-md border"
-                                                loading="lazy"
-                                                sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-                                              />
-                        </div>
-                                          ) : (
-                                            <div className="text-xs text-muted-foreground">Twitter</div>
-                                          )}
-                                        </HoverCardContent>
-                                      </HoverCard>
+                                      <a key="tw" href={twitter} target="_blank" rel="noopener noreferrer" title={looksLikeTweet(twitter) ? 'Tweet' : 'Twitter'} className="text-muted-foreground hover:text-foreground">
+                                        <Twitter className="h-3.5 w-3.5" />
+                                      </a>
                                     );
                                   }
                                 }
                                 if (telegram) icons.push(
-                                  <HoverCard openDelay={150} closeDelay={100} key="tg_hover">
-                                    <HoverCardTrigger asChild>
-                                      <a key="tg" href={telegram} target="_blank" rel="noopener noreferrer" title="Telegram" className="text-muted-foreground hover:text-foreground">
-                                        <Send className="h-3.5 w-3.5" />
-                                      </a>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
-                                      <div className="text-xs text-muted-foreground mb-1">Telegram</div>
-                                      <div className="text-sm break-words">{telegram}</div>
-                                    </HoverCardContent>
-                                  </HoverCard>
+                                  <a key="tg" href={telegram} target="_blank" rel="noopener noreferrer" title="Telegram" className="text-muted-foreground hover:text-foreground">
+                                    <Send className="h-3.5 w-3.5" />
+                                  </a>
                                 );
                                 if (discord) icons.push(
                                   <a key="dc" href={discord} target="_blank" rel="noopener noreferrer" title="Discord" className="text-muted-foreground hover:text-foreground">
@@ -915,56 +861,24 @@ export default function Dashboard() {
                                   </a>
                                 );
                                 if (youtube) icons.push(
-                                  <HoverCard openDelay={150} closeDelay={100} key="yt_hover">
-                                    <HoverCardTrigger asChild>
-                                      <a key="yt" href={youtube} target="_blank" rel="noopener noreferrer" title="YouTube" className="text-red-500 hover:text-red-600">
-                                        <Youtube className="h-3.5 w-3.5" />
-                                      </a>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent side="left" align="start" className="w-[360px] p-2 bg-card/95 border shadow-xl">
-                                      <div className="text-xs text-muted-foreground mb-1">YouTube</div>
-                                      <div className="text-sm break-words">{youtube}</div>
-                                    </HoverCardContent>
-                                  </HoverCard>
+                                  <a key="yt" href={youtube} target="_blank" rel="noopener noreferrer" title="YouTube" className="text-red-500 hover:text-red-600">
+                                    <Youtube className="h-3.5 w-3.5" />
+                                  </a>
                                 );
                                 if (instagram) icons.push(
-                                  <HoverCard openDelay={150} closeDelay={100} key="ig_hover">
-                                    <HoverCardTrigger asChild>
-                                      <a key="ig" href={instagram} target="_blank" rel="noopener noreferrer" title="Instagram" className="text-pink-500 hover:text-pink-600">
-                                        <Instagram className="h-3.5 w-3.5" />
-                                      </a>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
-                                      <div className="text-xs text-muted-foreground mb-1">Instagram</div>
-                                      <div className="text-sm break-words">{instagram}</div>
-                                    </HoverCardContent>
-                                  </HoverCard>
+                                  <a key="ig" href={instagram} target="_blank" rel="noopener noreferrer" title="Instagram" className="text-pink-500 hover:text-pink-600">
+                                    <Instagram className="h-3.5 w-3.5" />
+                                  </a>
                                 );
                                 if (reddit) icons.push(
-                                  <HoverCard openDelay={150} closeDelay={100} key="rd_hover">
-                                    <HoverCardTrigger asChild>
-                                      <a key="rd" href={reddit} target="_blank" rel="noopener noreferrer" title="Reddit" className="text-orange-500 hover:text-orange-600">
-                                        <MessageCircle className="h-3.5 w-3.5" />
-                                      </a>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
-                                      <div className="text-xs text-muted-foreground mb-1">Reddit</div>
-                                      <div className="text-sm break-words">{reddit}</div>
-                                    </HoverCardContent>
-                                  </HoverCard>
+                                  <a key="rd" href={reddit} target="_blank" rel="noopener noreferrer" title="Reddit" className="text-orange-500 hover:text-orange-600">
+                                    <MessageCircle className="h-3.5 w-3.5" />
+                                  </a>
                                 );
                                 if (tiktok) icons.push(
-                                  <HoverCard openDelay={150} closeDelay={100} key="tt_hover">
-                                    <HoverCardTrigger asChild>
-                                      <a key="tt" href={tiktok} target="_blank" rel="noopener noreferrer" title="TikTok" className="text-foreground hover:opacity-80">
-                                        <Music2 className="h-3.5 w-3.5" />
-                                      </a>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
-                                      <div className="text-xs text-muted-foreground mb-1">TikTok</div>
-                                      <div className="text-sm break-words">{tiktok}</div>
-                                    </HoverCardContent>
-                                  </HoverCard>
+                                  <a key="tt" href={tiktok} target="_blank" rel="noopener noreferrer" title="TikTok" className="text-foreground hover:opacity-80">
+                                    <Music2 className="h-3.5 w-3.5" />
+                                  </a>
                                 );
                                 // If none detected but there is a community-like URL in website, show Users
                                 if (!icons.length && looksLikeCommunity(website)) {
@@ -1187,109 +1101,80 @@ export default function Dashboard() {
                   <p>❌ Error loading trending</p>
                   <p className="text-xs mt-2">{String(trendingError)}</p>
                 </div>
-              ) : trendingPairs.length > 0 ? (
-                trendingPairs.map((pair: any, index: number) => {
+              ) : trendingTokens.length > 0 ? (
+                trendingTokens.map((token: any, index: number) => {
+                  const marketCapUSD = token.marketCapSol ? (token.marketCapSol * solanaPrice).toFixed(2) : '0';
+                  const dexScreenerUrl = token.pairAddress ? `https://dexscreener.com/solana/${token.pairAddress}` : `https://solscan.io/token/${token.mint}`;
+                  
+
                   return (
-                    <div key={pair.pairAddress || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                          {/* Token Image */}
-                          <HoverCard openDelay={200} closeDelay={100}>
-                            <HoverCardTrigger asChild>
-                              <div className={`relative w-10 h-10 ${pair.info?.imageUrl ? 'ring-2 ring-white/70 hover:ring-white transition-all cursor-pointer rounded-full' : ''}`} title={pair.info?.imageUrl ? 'Hover to preview' : undefined}>
-                                {pair.info?.imageUrl && (
-                                  <img 
-                                    src={pair.info.imageUrl}
-                                    alt={pair.baseToken?.symbol}
-                                    className="absolute inset-0 w-10 h-10 rounded-full object-cover z-10"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      target.style.display = 'none';
-                                    }}
-                                  />
-                                )}
-                                <div className="absolute inset-0 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
-                                  {pair.baseToken?.symbol?.charAt(0)?.toUpperCase() || 'T'}
-                        </div>
-                              </div>
-                            </HoverCardTrigger>
-                            {pair.info?.imageUrl && (
-                              <HoverCardContent side="right" className="w-auto p-1 border-0 bg-card/95 shadow-2xl">
-                                <img
-                                  src={pair.info.imageUrl}
-                                  alt={pair.baseToken?.symbol}
-                                  className="w-48 h-48 rounded-lg object-cover"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                  }}
-                                />
-                              </HoverCardContent>
-                            )}
-                          </HoverCard>
+                    <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <TokenImage mint={token.mint} symbol={token.symbol} uri={null} directImage={token.image} />
                           
-                        <div>
-                            <div className="font-medium text-sm">{pair.baseToken?.name || pair.baseToken?.symbol || 'Unknown'}</div>
-                            <div className="text-xs text-muted-foreground">{pair.baseToken?.symbol || 'N/A'}</div>
+                          <div>
+                            <div className="flex items-center gap-2 font-medium text-sm">
+                              <span>{token.name || token.symbol || 'Unknown'}</span>
+                              <button
+                                type="button"
+                                className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(token.mint || '');
+                                    toast({ title: 'Copied', description: 'Copied to clipboard' });
+                                  } catch {}
+                                }}
+                                title="Copy"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {token.symbol || 'N/A'}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      
+                        
                         <div className="flex items-center space-x-2">
-                      <div className="text-right">
-                            <div className={`text-sm font-medium text-foreground`}>
-                              ${(pair.volume?.h24 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol (24h)
-                      </div>
-                            {typeof pair?.priceChange?.h24 === 'number' && (
-                              <div className={`text-xs ${ (pair.priceChange.h24) >= 0 ? 'text-green-500' : 'text-red-500' }`}>
-                                {(pair.priceChange.h24 >= 0 ? '+' : '') + pair.priceChange.h24.toFixed(2)}% (24h)
-                    </div>
-                            )}
-                            <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(pair)}/100</div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 px-2 mt-1"
-                              onClick={() => handleSummarize(pair)}
-                            >
-                              Summarize
-                            </Button>
-                  </div>
+                          <div className="text-right">
+                            <div className="text-sm font-medium">${Number(marketCapUSD).toLocaleString()}</div>
+                            <div className="text-xs text-blue-500">{token.marketCapSol?.toFixed(2)} SOL</div>
+                            <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(token)}/100</div>
+                          </div>
                           
-                          {/* Links */}
                           <div className="flex items-center space-x-1">
-                            {/* DexScreener Link */}
                             <a 
-                              href={`https://dexscreener.com/solana/${pair.pairAddress}`}
+                              href={`https://solscan.io/token/${token.mint}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-muted-foreground hover:text-orange-500 transition-colors"
-                              title="View on DexScreener"
+                              className="text-muted-foreground hover:text-blue-500 transition-colors"
+                              title="View on Solscan"
                             >
                               <ExternalLinkIcon className="h-3.5 w-3.5" />
                             </a>
                             
-                            {/* Favorite Button */}
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => {
                                 toggleCategorizedFavorite({
-                                  mint: pair.baseToken?.address || pair.pairAddress,
+                                  mint: token.mint,
                                   category: 'trending',
-                                  name: pair.baseToken?.name,
-                                  symbol: pair.baseToken?.symbol,
-                                  marketCap: pair.fdv || 0,
-                                  image: pair.info?.imageUrl,
-                                  pool: undefined as any,
+                                  name: token.name,
+                                  symbol: token.symbol,
+                                  marketCap: Number(marketCapUSD),
+                                  image: token.image,
+                                  pool: token.pool,
                                 });
                                 toast({
-                                  title: isFavorite(pair.baseToken?.address || pair.pairAddress) ? "Removed from Favorites" : "Added to Favorites",
-                                  description: `${pair.baseToken?.symbol} has been ${isFavorite(pair.baseToken?.address || pair.pairAddress) ? 'removed from' : 'added to'} your favorites`,
+                                  title: isFavorite(token.mint) ? "Removed from Favorites" : "Added to Favorites",
+                                  description: `${token.symbol} has been ${isFavorite(token.mint) ? 'removed from' : 'added to'} your favorites`,
                                 });
                               }}
                               className="h-6 w-6 p-0"
                             >
-                              <Star className={`h-3 w-3 ${isFavorite(pair.baseToken?.address || pair.pairAddress) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
+                              <Star className={`h-3 w-3 ${isFavorite(token.mint) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
                             </Button>
                           </div>
                         </div>

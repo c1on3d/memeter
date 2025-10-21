@@ -17,25 +17,58 @@ export class DatabaseService {
     }
 
     try {
-      this.sequelize = new Sequelize({
-        host: this.config.host,
-        port: this.config.port,
-        database: this.config.database,
-        username: this.config.username,
-        password: this.config.password,
-        dialect: this.config.dialect,
-        logging: this.config.logging ? console.log : false,
-        pool: {
-          max: 5,
-          min: 0,
-          acquire: 30000,
-          idle: 10000,
-        },
-        define: {
-          timestamps: true,
-          underscored: false,
-        },
-      });
+      if (this.config.dialect === 'sqlite') {
+        this.sequelize = new Sequelize({
+          dialect: 'sqlite',
+          storage: this.config.database,
+          logging: this.config.logging ? console.log : false,
+          define: {
+            timestamps: true,
+            underscored: false,
+          },
+        });
+      } else {
+        // PostgreSQL configuration with Google Cloud SQL support
+        const sequelizeConfig: any = {
+          database: this.config.database,
+          username: this.config.username,
+          password: this.config.password,
+          dialect: this.config.dialect,
+          logging: this.config.logging ? console.log : false,
+          pool: {
+            max: 5,
+            min: 0,
+            acquire: 30000,
+            idle: 10000,
+          },
+          define: {
+            timestamps: true,
+            underscored: false,
+          },
+        };
+
+        // Use Unix socket for Cloud SQL if provided, otherwise use host/port
+        if (this.config.socketPath) {
+          console.log(`🔌 Using Cloud SQL unix socket: ${this.config.socketPath}`);
+          sequelizeConfig.host = this.config.socketPath;
+          sequelizeConfig.dialectOptions = {
+            socketPath: this.config.socketPath,
+          };
+        } else {
+          sequelizeConfig.host = this.config.host;
+          sequelizeConfig.port = this.config.port;
+          
+          // Add SSL configuration if provided
+          if (this.config.ssl) {
+            console.log('🔐 Using SSL for database connection');
+            sequelizeConfig.dialectOptions = {
+              ssl: this.config.ssl === true ? { rejectUnauthorized: false } : this.config.ssl,
+            };
+          }
+        }
+
+        this.sequelize = new Sequelize(sequelizeConfig);
+      }
 
       await this.sequelize.authenticate();
       console.log('✅ Database connection established successfully');

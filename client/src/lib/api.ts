@@ -1,4 +1,4 @@
-// API configuration - Configure this to point to your backend on Render
+// API configuration - Configure this to point to your backend on Google Cloud
 const getApiBaseUrl = () => {
   // Set your backend URL here or via environment variable
   const envUrl = import.meta.env.VITE_API_URL;
@@ -13,7 +13,7 @@ const getApiBaseUrl = () => {
   }
   
   // Default: Leave empty if using VITE_API_URL environment variable
-  // Example: 'https://your-backend-name.onrender.com'
+  // Example: 'https://your-backend-on-cloud-run.run.app'
   console.warn('⚠️ VITE_API_URL not set! API calls will fail.');
   return '';
 };
@@ -37,8 +37,7 @@ export const buildApiUrl = (endpoint: string): string => {
   return cleanEndpoint;
 };
 
-// API endpoints mapped to your Render backend
-// Based on: https://memeter-backend.onrender.com/
+// API endpoints
 export const API_ENDPOINTS = {
   // PumpPortal - New tokens from WebSocket
   NEW_TOKENS: '/api/new',

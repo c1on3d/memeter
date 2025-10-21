@@ -313,21 +313,138 @@ export function createMemeterBackend(options: MemeterBackendOptions): Router {
   // DexScreener endpoints - proxy to public API
   router.get('/api/dexscreener/trending/solana', async (_req: Request, res: Response) => {
     try {
-      const response = await fetch('https://api.dexscreener.com/token-boosts/latest/v1');
-      if (!response.ok) {
-        throw new Error(`DexScreener API returned ${response.status}`);
+      let pairs: any[] = [];
+      
+      // Method 1: Try trending boosted tokens (premium trending)
+      try {
+        console.log('🔥 Fetching DexScreener trending tokens (24h boosted)...');
+        const response = await fetch('https://api.dexscreener.com/orders/v1/solana?sort=trendingScoreH24&order=desc&limit=30');
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data && Array.isArray(data) && data.length > 0) {
+            console.log(`✅ Found ${data.length} boosted trending tokens`);
+            pairs = data.map((item: any, index: number) => ({
+              mint: item.tokenAddress || item.pairAddress,
+              name: item.name || item.symbol || 'Unknown',
+              symbol: item.symbol || 'UNK',
+              image: item.imageUrl || item.icon || null,
+              marketCapSol: 0,
+              marketCap: 0,
+              pool: 'dex',
+              creator: '',
+              volume24h: 0,
+              pairAddress: item.pairAddress || item.tokenAddress,
+              priceChange: { h1: 0, h6: 0, h24: 0 },
+              volume: { h1: 0, h6: 0, h24: 0 },
+              trendingScoreH6: 100 - index,
+              trendingScoreH24: 100 - index,
+            }));
+          }
+        }
+      } catch (e: any) {
+        console.warn('Boosted trending fetch failed:', e?.message);
       }
-      const data = await response.json();
       
-      // Filter for Solana pairs
-      const solanaPairs = Array.isArray(data) ? data.filter((item: any) => 
-        item.chainId === 'solana' || item.chain === 'solana'
-      ) : [];
+      // Method 2: Search for high-volume Solana tokens
+      if (pairs.length === 0) {
+        try {
+          console.log('🔍 Fetching high-volume Solana tokens...');
+          const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=SOL');
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data?.pairs && Array.isArray(data.pairs)) {
+              pairs = data.pairs
+                .filter((p: any) => {
+                  return p?.chainId === 'solana' &&
+                         p?.baseToken?.address && 
+                         p?.baseToken?.symbol && 
+                         (p?.volume?.h24 > 10000 || p?.priceChange?.h24 !== 0); // Active trading
+                })
+                .sort((a: any, b: any) => {
+                  // Sort by 24h volume
+                  const volA = a?.volume?.h24 || 0;
+                  const volB = b?.volume?.h24 || 0;
+                  return volB - volA;
+                })
+                .slice(0, 30)
+                .map((p: any) => ({
+                  mint: p.baseToken?.address || p.pairAddress,
+                  name: p.baseToken?.name || p.baseToken?.symbol,
+                  symbol: p.baseToken?.symbol || 'UNK',
+                  image: p.info?.imageUrl || null,
+                  marketCapSol: (p.marketCap || p.fdv || 0) / 100,
+                  marketCap: p.marketCap || p.fdv || 0,
+                  pool: 'dex',
+                  creator: '',
+                  priceChange: {
+                    h1: p?.priceChange?.h1 || 0,
+                    h6: p?.priceChange?.h6 || 0,
+                    h24: p?.priceChange?.h24 || 0,
+                  },
+                  volume: {
+                    h1: p?.volume?.h1 || 0,
+                    h6: p?.volume?.h6 || 0,
+                    h24: p?.volume?.h24 || 0,
+                  },
+                  volume24h: p?.volume?.h24 || 0,
+                  trendingScoreH6: p?.trendingScoreH6 || 0,
+                  trendingScoreH24: p?.trendingScoreH24 || 0,
+                  pairAddress: p.pairAddress,
+                }));
+              
+              console.log(`✅ Found ${pairs.length} high-volume Solana tokens`);
+            }
+          }
+        } catch (e: any) {
+          console.warn('Search fetch failed:', e?.message);
+        }
+      }
       
-      res.json({ pairs: solanaPairs });
+      // Method 3: Fallback to token profiles if all else fails
+      if (pairs.length === 0) {
+        try {
+          console.log('🔍 Fallback: Trying token profiles...');
+          const profileRes = await fetch('https://api.dexscreener.com/token-profiles/latest/v1');
+          if (profileRes.ok) {
+            const profileData = await profileRes.json();
+            if (Array.isArray(profileData)) {
+              pairs = profileData
+                .filter((item: any) => item.chainId === 'solana')
+                .slice(0, 30)
+                .map((item: any, index: number) => {
+                  const pairAddress = item.url?.split('/').pop() || '';
+                  return {
+                    mint: item.tokenAddress || pairAddress,
+                    name: item.description || 'Unknown Token',
+                    symbol: item.url?.split('/').pop() || 'UNK',
+                    image: item.icon,
+                    marketCapSol: 0,
+                    marketCap: 0,
+                    pool: 'dex',
+                    creator: '',
+                    volume24h: 0,
+                    pairAddress,
+                    priceChange: { h1: 0, h6: 0, h24: 0 },
+                    volume: { h1: 0, h6: 0, h24: 0 },
+                    trendingScoreH6: 100 - index,
+                    trendingScoreH24: 100 - index,
+                  };
+                });
+              console.log(`✅ Token profiles: ${pairs.length} tokens`);
+            }
+          }
+        } catch (e: any) {
+          console.warn('Token profiles fetch failed:', e?.message);
+        }
+      }
+      
+      console.log(`📊 Returning ${pairs.length} trending tokens`);
+      res.json({ tokens: pairs });
     } catch (error) {
-      console.error('Error fetching DexScreener trending:', error);
-      res.status(500).json({ error: 'Failed to fetch trending tokens' });
+      console.error('❌ Error fetching trending:', error);
+      res.json({ tokens: [] });
     }
   });
 

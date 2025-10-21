@@ -86,7 +86,7 @@ export class PumpPortalService {
         
         if (data.uri && !data.uri.endsWith('.json')) {
           try {
-            const metadataResponse = await fetch(data.uri, { timeout: 3000 });
+            const metadataResponse = await fetch(data.uri);
             if (metadataResponse.ok) {
               metadata = await metadataResponse.json();
               imageUrl = imageUrl || metadata.image;

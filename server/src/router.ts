@@ -1,5 +1,4 @@
 import express, { type Router, type Request, type Response } from 'express';
-import Moralis from 'moralis';
 import type { AppConfig } from './config/appConfig';
 import type { DatabaseService } from './database/service';
 import type { PumpPortalService } from './services/pumpPortalService';
@@ -26,61 +25,6 @@ export function createMemeterBackend(options: MemeterBackendOptions): Router {
       pumpPortal: pumpPortalService?.isConnected() ? 'connected' : 'disconnected',
       database: databaseService ? 'enabled' : 'disabled',
     });
-  });
-
-  // BSC token metadata endpoint (fetch + optional add to memory)
-  router.post('/api/bsc/token/metadata', express.json(), async (req: Request, res: Response) => {
-    try {
-      const address = (req.body?.address || '').toString().trim();
-      const addToList = Boolean(req.body?.addToList);
-
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        return res.status(400).json({ error: 'Invalid BSC token address' });
-      }
-
-      if (!(Moralis as any)?.Core?.isStarted) {
-        return res.status(503).json({ error: 'Moralis not initialized on server' });
-      }
-
-      const response = await Moralis.EvmApi.token.getTokenMetadata({
-        chain: '0x38',
-        addresses: [address],
-      });
-
-      const token = (response as any)?.raw?.[0];
-      if (!token) {
-        return res.status(404).json({ error: 'Token not found' });
-      }
-
-      const normalized = {
-        mint: address,
-        name: token.name || 'Unknown Token',
-        symbol: token.symbol || 'UNK',
-        decimals: token.decimals ?? 18,
-        image: token.logo || null,
-        uri: null,
-        pool: 'bsc',
-        creator: '',
-        marketCap: 0,
-        marketCapSol: 0,
-        volume24h: 0,
-        price: 0,
-        createdAt: new Date().toISOString(),
-      };
-
-      if (addToList) {
-        try {
-          const { recentTokens } = getInMemory();
-          const idx = recentTokens.findIndex((t: any) => t.mint === normalized.mint);
-          if (idx !== -1) recentTokens[idx] = normalized; else recentTokens.unshift(normalized);
-        } catch {}
-      }
-
-      return res.json({ token: normalized });
-    } catch (error) {
-      console.error('Error fetching BSC token metadata:', error);
-      return res.status(500).json({ error: 'Failed to fetch BSC token metadata' });
-    }
   });
 
   // Get new tokens endpoint

@@ -12,8 +12,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "test": "echo \"✅ Type checking...\" && npm run check",
-    "lint": "echo \"No linter configured yet\"",
-    "register:pcs": "tsx scripts/registerPcsStream.ts"
+    "lint": "echo \"No linter configured yet\""
   },
   "dependencies": {
     "@radix-ui/react-hover-card": "^1.1.7",
@@ -29,7 +28,6 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "lucide-react": "^0.453.0",
-    "moralis": "^2.27.2",
     "nanoid": "^5.1.5",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.3",

@@ -5,7 +5,6 @@ import { setupVite, serveStatic, log } from "./vite";
 import { getConfig } from "./src/config/appConfig";
 import { DatabaseService } from "./src/database/service";
 import { PumpPortalService } from "./src/services/pumpPortalService";
-import Moralis from "moralis";
 import { createMemeterBackend } from "./src/router";
 
 // Note: Do NOT disable TLS certificate validation. Keep secure defaults.
@@ -126,20 +125,6 @@ app.use((req, res, next) => {
     pumpPortalService.start();
   } else {
     console.log('⏸️  PumpPortal service disabled');
-  }
-
-  // Initialize Moralis SDK (for BSC metadata lookups only)
-  if (process.env.MORALIS_API_KEY) {
-    try {
-      if (!(Moralis as any)?.Core?.isStarted) {
-        await Moralis.start({ apiKey: process.env.MORALIS_API_KEY });
-        console.log('✅ Moralis SDK initialized');
-      }
-    } catch (error) {
-      console.warn('⚠️  Moralis SDK failed to initialize:', error instanceof Error ? error.message : error);
-    }
-  } else {
-    console.log('⏸️  Moralis disabled (no API key)');
   }
 
   // BitQuery removed

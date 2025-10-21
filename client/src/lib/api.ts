@@ -39,11 +39,11 @@ export const buildApiUrl = (endpoint: string): string => {
 
 // API endpoints
 export const API_ENDPOINTS = {
-  // PumpPortal - New tokens from WebSocket
-  NEW_TOKENS: '/api/new',
+  // PumpPortal - New tokens from backend
+  NEW_TOKENS: '/recent',  // Updated to match backend
   
   // Token data
-  TOKENS: '/api/tokens',
+  TOKENS: '/recent',  // Using same endpoint
   
   // DexScreener endpoints
   DEXSCREENER_LATEST: '/api/dexscreener/latest',
@@ -54,6 +54,10 @@ export const API_ENDPOINTS = {
   // Social data
   SOCIAL_OVERVIEW: '/api/social/overview',
   SOCIAL_TOKEN: '/api/social/token',
+  
+  // Stats and health
+  STATS: '/stats',
+  HEALTH: '/health',
   
   // Backend status
   STATUS: '/',

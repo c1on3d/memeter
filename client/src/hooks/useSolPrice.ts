@@ -33,22 +33,7 @@ export function useSolPrice() {
         console.warn('DexScreener SOL price failed:', error);
       }
 
-      // Fallback: Jupiter price API (price only, no change %)
-      try {
-        const jupRes = await fetch('https://price.jup.ag/v6/price?ids=SOL');
-        if (jupRes.ok) {
-          const jupData = await jupRes.json();
-          const price = Number(jupData?.data?.SOL?.price || 0);
-          if (price > 0) {
-            console.log('✅ SOL price from Jupiter:', price);
-            return { price, priceChange24h: 0 };
-          }
-        }
-      } catch (error) {
-        console.warn('Jupiter SOL price failed:', error);
-      }
-
-      // No fallback - return 0 if all sources fail
+      // No fallback - return 0 if DexScreener fails
       return { price: 0, priceChange24h: 0 };
     },
     refetchInterval: 30_000, // refresh every 30s

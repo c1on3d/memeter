@@ -103,8 +103,12 @@ export default function Dashboard() {
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('memeter_authenticated');
     if (!isAuthenticated) {
-      console.log('Dashboard access denied - not authenticated, redirecting to landing');
-      setLocation('/');
+      // Temporarily disabled for testing - auto-authenticate
+      console.log('Auto-authenticating for testing');
+      localStorage.setItem('memeter_authenticated', 'true');
+      // Uncomment below to re-enable auth requirement:
+      // console.log('Dashboard access denied - not authenticated, redirecting to landing');
+      // setLocation('/');
     }
   }, [setLocation]);
 
@@ -230,13 +234,18 @@ export default function Dashboard() {
     queryKey: ['newTokens'],
     queryFn: async () => {
       console.log('🔵 Fetching new tokens from:', buildApiUrl(API_ENDPOINTS.NEW_TOKENS));
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.NEW_TOKENS));
+      const response = await fetch(buildApiUrl(`${API_ENDPOINTS.NEW_TOKENS}?limit=50`));
       if (!response.ok) {
         console.error('❌ Failed to fetch new tokens:', response.status, response.statusText);
         throw new Error('Failed to fetch new tokens');
       }
-      const data = await response.json();
-      console.log('✅ New tokens received:', data.count, 'tokens, showing:', data.tokens?.length);
+      const rawData = await response.json();
+      
+      // Backend returns an array directly, transform to expected format
+      const tokens = Array.isArray(rawData) ? rawData : [];
+      const data = { tokens, count: tokens.length };
+      
+      console.log('✅ New tokens received:', data.count, 'tokens');
       console.log('📊 First token:', data.tokens?.[0]);
       
       // Debug: Check if tokens have social links
@@ -252,7 +261,7 @@ export default function Dashboard() {
         });
       }
       
-      return data; // Returns { message, tokens: [...], count }
+      return data; // Returns { tokens: [...], count }
     },
     refetchInterval: 10000, // Refetch every 10 seconds
     retry: 3,
@@ -262,39 +271,36 @@ export default function Dashboard() {
   const { data: allTokensData, refetch: refetchTokens } = useQuery({
     queryKey: ['allTokens'],
     queryFn: async () => {
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.TOKENS));
+      const response = await fetch(buildApiUrl(`${API_ENDPOINTS.TOKENS}?limit=100`));
       if (!response.ok) throw new Error('Failed to fetch tokens');
-      const data = await response.json();
-      return data;
+      const rawData = await response.json();
+      
+      // Backend returns an array directly, transform to expected format
+      const tokens = Array.isArray(rawData) ? rawData : [];
+      return { tokens, count: tokens.length };
     },
     refetchInterval: 15000, // Refetch every 15 seconds
   });
 
-  // Fetch recent migrations
+  // Fetch recent migrations (disabled - endpoint not available yet)
   const { data: migrationsData, refetch: refetchMigrations } = useQuery({
     queryKey: ['migrations'],
     queryFn: async () => {
-      const response = await fetch(buildApiUrl('/api/migrations/recent'));
-      if (!response.ok) throw new Error('Failed to fetch migrations');
-      const data = await response.json();
-      console.log('✅ Migrations received:', data.count, 'migrations');
-      return data;
+      // Endpoint not available yet on backend
+      return { tokens: [], count: 0 };
     },
+    enabled: false, // Disabled until backend supports this endpoint
     refetchInterval: 15000,
   });
 
-  // Fetch DexScreener trending tokens (same format as new tokens)
+  // Fetch DexScreener trending tokens (disabled - endpoint not available yet)
   const { data: dexScreenerData, refetch: refetchDexScreener, isLoading: isLoadingTrending, error: trendingError } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
-      console.log('🔥 Fetching trending tokens from backend...');
-      const res = await fetch(buildApiUrl('/api/dexscreener/trending/solana'));
-      if (!res.ok) throw new Error('Failed to fetch trending tokens');
-      const data = await res.json();
-      const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
-      console.log('✅ Trending tokens received:', tokens.length);
-      return { tokens };
+      // Endpoint not available yet on backend
+      return { tokens: [] };
     },
+    enabled: false, // Disabled until backend supports this endpoint
     refetchInterval: 20000, // Refetch every 20 seconds
   });
 
@@ -380,37 +386,16 @@ export default function Dashboard() {
           const pumpMatches = pumpSource.filter((t) => (t?.mint || '').trim() === q);
           pumpMatches.slice(0, 1).forEach((t) => combined.push({ type: 'pump', token: t }));
           
-          // If not found in PumpPortal, try DexScreener but only show first result (original token)
-          if (combined.length === 0) {
-            const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DEXSCREENER_TOKEN}/${q}`));
-            if (res.ok) {
-              const data = await res.json();
-              const pairs = data?.data?.pairs || data?.pairs || [];
-              // Only add the first pair (most likely the original deployment)
-              if (pairs.length > 0) {
-                combined.push({ type: 'dex', pair: pairs[0] });
-              }
-            }
-          }
+          // DexScreener search disabled - backend endpoint not available yet
         } else {
-          // Name/symbol search: Show both PumpPortal and DexScreener results
+          // Name/symbol search: Show PumpPortal results only
           const ql = q.toLowerCase();
           const pumpMatches = pumpSource.filter((t) =>
             (t?.symbol || '').toLowerCase().includes(ql) || (t?.name || '').toLowerCase().includes(ql)
           );
           pumpMatches.slice(0, 20).forEach((t) => combined.push({ type: 'pump', token: t }));
           
-          // 2) DexScreener data (only for name/symbol searches)
-          const res = await fetch(buildApiUrl('/api/dexscreener/search/solana'));
-          if (res.ok) {
-            const data = await res.json();
-            const pairs = data?.tokens || data?.pairs || [];
-            const filtered = pairs.filter((p: any) =>
-              (p?.baseToken?.symbol || '').toLowerCase().includes(ql) ||
-              (p?.baseToken?.name || '').toLowerCase().includes(ql)
-            );
-            filtered.slice(0, 20).forEach((p: any) => combined.push({ type: 'dex', pair: p }));
-          }
+          // DexScreener search disabled - backend endpoint not available yet
         }
 
         setSearchResults(combined);

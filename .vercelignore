@@ -1,8 +1,0 @@
-# Ignore backend files - we only deploy frontend to Vercel
-server/
-api/
-*.md
-.env
-.env.local
-node_modules/
-

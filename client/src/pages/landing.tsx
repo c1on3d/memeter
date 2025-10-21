@@ -138,10 +138,10 @@ export default function Landing() {
           {/* Hero Section */}
           <div className="text-center mb-16">
             <div className="mb-8">
-              {/* Logo - Memeter logo SVG - Maximizing space */}
+              {/* Logo - Memeter logo PNG - Maximizing space */}
               <div className="relative w-80 h-80 mx-auto mb-6">
                 <img 
-                  src="/memeter-logo.svg" 
+                  src="/memeter-logo.png" 
                   alt="Memeter Logo" 
                   className="w-full h-full object-contain"
                 />

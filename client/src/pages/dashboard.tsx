@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useSolPrice } from "@/hooks/useSolPrice";
-import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy } from "lucide-react";
+import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy, Globe, Twitter, Send, Users, Youtube, Instagram, Music2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
@@ -124,6 +124,87 @@ export default function Dashboard() {
     console.log('Summarize token:', t);
   };
 
+  // Extract common social/website links from token data (uri metadata might be proxied)
+  const extractLinks = (t: any) => {
+    const links: { website?: string; twitter?: string; telegram?: string; discord?: string; youtube?: string; instagram?: string; reddit?: string; tiktok?: string } = {};
+    // Prefer direct fields if backend provides them
+    if (t.website) links.website = t.website;
+    if (t.twitter) links.twitter = t.twitter;
+    if (t.telegram) links.telegram = t.telegram;
+    if (t.discord) links.discord = t.discord;
+    if (t.youtube) links.youtube = t.youtube;
+    if (t.instagram) links.instagram = t.instagram;
+    if (t.reddit) links.reddit = t.reddit;
+    if (t.tiktok) links.tiktok = t.tiktok;
+    // Some backends embed a 'links' object
+    if (t.links) {
+      links.website = links.website || t.links.website;
+      links.twitter = links.twitter || t.links.twitter;
+      links.telegram = links.telegram || t.links.telegram;
+      links.discord = links.discord || t.links.discord;
+      links.youtube = links.youtube || t.links.youtube;
+      links.instagram = links.instagram || t.links.instagram;
+      links.reddit = links.reddit || t.links.reddit;
+      links.tiktok = links.tiktok || t.links.tiktok;
+    }
+    
+    // Debug: Log when we find links
+    const hasLinks = Object.values(links).some(v => !!v);
+    if (hasLinks) {
+      console.log(`🔗 Found links for ${t.symbol}:`, links);
+    }
+    
+    return links;
+  };
+
+  // URL detectors for hover previews
+  const looksLikeTweetUrl = (url?: string) => !!url && /(twitter|x)\.com\/[^/]+\/status\//i.test(url);
+  const looksLikeTwitterCommunityUrl = (url?: string) => !!url && /(twitter|x)\.com\/(i\/communities|communities)/i.test(url);
+
+  // Normalize Twitter/X links to twitter.com for reliable embedding
+  const normalizeTwitterUrl = (url?: string): string => {
+    if (!url) return '';
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase();
+      if (host === 'x.com' || host.endsWith('.x.com')) u.hostname = 'twitter.com';
+      if (host === 'mobile.twitter.com') u.hostname = 'twitter.com';
+      return u.toString();
+    } catch {
+      return url;
+    }
+  };
+
+  // Extract hostname for simple preview cards
+  const extractHostname = (url?: string): string => {
+    if (!url) return '';
+    try {
+      const u = new URL(url);
+      return u.hostname.replace(/^www\./i, '');
+    } catch {
+      return '';
+    }
+  };
+
+  // Detect known platform from URL for icon selection
+  const detectPlatform = (url?: string): 'twitter' | 'telegram' | 'discord' | 'youtube' | 'instagram' | 'reddit' | 'tiktok' | null => {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase().replace(/^www\./, '');
+      if (host === 'x.com' || host.endsWith('.x.com') || host === 'twitter.com' || host.endsWith('.twitter.com')) return 'twitter';
+      if (host === 't.me' || host.endsWith('.t.me') || host === 'telegram.me' || host.endsWith('.telegram.me')) return 'telegram';
+      if (host === 'discord.gg' || host.endsWith('.discord.gg') || host === 'discord.com' || host.endsWith('.discord.com')) return 'discord';
+      if (host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be') return 'youtube';
+      if (host === 'instagram.com' || host.endsWith('.instagram.com')) return 'instagram';
+      if (host === 'reddit.com' || host.endsWith('.reddit.com')) return 'reddit';
+      if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) return 'tiktok';
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   // Wallet connection
   const { connected, publicKey, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
 
@@ -140,6 +221,20 @@ export default function Dashboard() {
       const data = await response.json();
       console.log('✅ New tokens received:', data.count, 'tokens, showing:', data.tokens?.length);
       console.log('📊 First token:', data.tokens?.[0]);
+      
+      // Debug: Check if tokens have social links
+      if (data.tokens?.[0]) {
+        const firstToken = data.tokens[0];
+        console.log('🔍 First token fields:', {
+          hasImage: !!firstToken.image,
+          hasUri: !!firstToken.uri,
+          hasWebsite: !!firstToken.website,
+          hasTwitter: !!firstToken.twitter,
+          hasTelegram: !!firstToken.telegram,
+          hasDiscord: !!firstToken.discord,
+        });
+      }
+      
       return data; // Returns { message, tokens: [...], count }
     },
     refetchInterval: 10000, // Refetch every 10 seconds
@@ -171,29 +266,59 @@ export default function Dashboard() {
     refetchInterval: 15000,
   });
 
-  // Fetch DexScreener data (public API for reliability)
-  const { data: dexScreenerData, refetch: refetchDexScreener } = useQuery({
+  // Fetch DexScreener trending (backend-first with public fallback)
+  const { data: dexScreenerData, refetch: refetchDexScreener, isLoading: isLoadingTrending, error: trendingError } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
+      // 1) Try backend trending endpoint first
+      try {
+        const res = await fetch(buildApiUrl('/api/dexscreener/trending/solana'));
+        if (res.ok) {
+          const data = await res.json();
+          const pairs = Array.isArray(data?.pairs) ? data.pairs : (Array.isArray(data?.tokens) ? data.tokens : []);
+          console.log('✅ Backend trending pairs:', pairs.length);
+          if (pairs.length > 0) return { pairs };
+        }
+      } catch (e) {
+        console.warn('Backend trending fetch failed, falling back to public API');
+      }
+
+      // 2) Fallback: DexScreener public API
+      console.log('🌐 Fetching DexScreener public API...');
       const ds = await fetch('https://api.dexscreener.com/latest/dex/tokens/solana');
       if (!ds.ok) throw new Error('Failed to fetch DexScreener data');
       const json = await ds.json();
-      const pairs = Array.isArray(json?.pairs) ? json.pairs : [];
-
-      // Normalize: ensure priceChange.h6 exists; fallback to h24 or h1 or 0
-      const normalized = pairs
-        .map((p: any) => {
-          const h6 = (p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? p?.priceChange?.h1 ?? 0);
-          return { 
-            ...p, 
-            priceChange: { ...(p?.priceChange || {}), h6 }
-          };
-        })
-        // Keep entries that have basic fields
+      let pairs = Array.isArray(json?.pairs) ? json.pairs : [];
+      let normalized = pairs
+        .map((p: any) => ({
+          ...p,
+          priceChange: { ...(p?.priceChange || {}), h6: (p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? p?.priceChange?.h1 ?? 0) },
+          trendingScoreH24: 0,
+        }))
         .filter((p: any) => !!p?.pairAddress && !!p?.baseToken?.symbol);
+      console.log('✅ Public API pairs:', normalized.length);
+      if (normalized.length > 0) return { pairs: normalized };
 
-      console.log('✅ DexScreener public pairs:', { total: pairs.length, normalized: normalized.length });
-      return { pairs: normalized };
+      // 3) Last resort: DexScreener search (broader), filter to Solana
+      console.log('🔎 Falling back to DexScreener search API...');
+      const sr = await fetch('https://api.dexscreener.com/latest/dex/search?q=solana');
+      if (sr.ok) {
+        const sj = await sr.json();
+        const spairs = Array.isArray(sj?.pairs) ? sj.pairs : [];
+        const solOnly = spairs.filter((p: any) => (p?.chainId || p?.chain || '').toString().toLowerCase() === 'solana');
+        const snorm = solOnly
+          .map((p: any) => ({
+            ...p,
+            priceChange: { ...(p?.priceChange || {}), h6: (p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? p?.priceChange?.h1 ?? 0) },
+            trendingScoreH24: 0,
+          }))
+          .filter((p: any) => !!p?.pairAddress && !!p?.baseToken?.symbol);
+        console.log('✅ Search API pairs (Solana):', snorm.length);
+        if (snorm.length > 0) return { pairs: snorm };
+      }
+
+      // If everything failed, return empty
+      return { pairs: [] };
     },
     refetchInterval: 20000, // Refetch every 20 seconds
   });
@@ -216,12 +341,17 @@ export default function Dashboard() {
   const migrations = migrationsData?.migrations || [];
   const totalMigrations = migrations.length;
   
-  // Build trending list using 6h performance from Solana pairs
+  // Build trending list using DexScreener trendingScoreH24 (fallback to 24h volume)
   const solanaPairs = Array.isArray((dexScreenerData as any)?.pairs)
     ? (dexScreenerData as any).pairs
     : [];
   const trendingPairs = [...solanaPairs]
-    .sort((a: any, b: any) => ((b?.priceChange?.h6 ?? -Infinity) - (a?.priceChange?.h6 ?? -Infinity)))
+    .sort((a: any, b: any) => {
+      const sb = b?.trendingScoreH24 ?? -Infinity;
+      const sa = a?.trendingScoreH24 ?? -Infinity;
+      if (sb !== sa) return sb - sa;
+      return (b?.volume?.h24 || 0) - (a?.volume?.h24 || 0);
+    })
     .slice(0, 30);
   const trendingCount = trendingPairs.length;
   
@@ -367,7 +497,7 @@ export default function Dashboard() {
               {/* Logo - Memeter logo SVG */}
               <div className="relative w-32 h-32">
                 <img 
-                  src="/memeter-logo.svg" 
+                  src="/memeter-logo.png" 
                   alt="Memeter Logo" 
                   className="w-full h-full object-contain"
                 />
@@ -447,7 +577,14 @@ export default function Dashboard() {
                       }
                       // PumpPortal token
                       const t = item.token;
-                      const launchpadUrl = t.pool === 'pump' ? `https://pump.fun/${t.mint}` : t.pool === 'bonk' ? `https://bonk.fun/${t.mint}` : `https://solscan.io/token/${t.mint}`;
+                      const launchpadUrl =
+                        t.pool === 'pump'
+                          ? `https://pump.fun/${t.mint}`
+                          : t.pool === 'bonk'
+                            ? `https://bonk.fun/${t.mint}`
+                            : t.pool === 'bsc'
+                              ? `https://bscscan.com/token/${t.mint}`
+                              : `https://solscan.io/token/${t.mint}`;
                       const proxiedImg = getProxiedImageUrl(t.image || t.uri, backendBase);
                       return (
                         <a
@@ -656,8 +793,10 @@ export default function Dashboard() {
                   const launchpadUrl = token.pool === 'pump' 
                     ? `https://pump.fun/${token.mint}` 
                     : token.pool === 'bonk' 
-                    ? `https://bonk.fun/${token.mint}`
-                    : null;
+                      ? `https://bonk.fun/${token.mint}`
+                      : token.pool === 'bsc'
+                        ? `https://bscscan.com/token/${token.mint}`
+                        : null;
                   
                   return (
                     <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
@@ -682,6 +821,161 @@ export default function Dashboard() {
                               >
                                 <Copy className="h-3.5 w-3.5" />
                               </button>
+                              {/* Social icons if present */}
+                              {(() => {
+                                const { website, twitter, telegram, discord, youtube, instagram, reddit, tiktok } = extractLinks(token);
+                                // If only one link and it is a twitter status, show Twitter icon pointing at that
+                                // If it looks like a community link (e.g., pump.fun/community, dexscreener.com/solana/{pair}, or discord/telegram), show Users icon
+                                const looksLikeTweet = (url?: string) => !!url && /(twitter|x)\.com\/[^/]+\/status\//i.test(url);
+                                const looksLikeTwitterCommunity = (url?: string) => !!url && /(twitter|x)\.com\/(i\/communities|communities)/i.test(url);
+                                const looksLikeCommunity = (url?: string) => !!url && /(discord\.gg|discord\.com\/invite|t\.me\/|pump\.fun\/community|dexscreener\.com\/solana)/i.test(url);
+
+                                const icons: JSX.Element[] = [];
+                                if (website) {
+                                  const platform = detectPlatform(website);
+                                  const icon = platform === 'twitter' ? <Twitter className="h-3.5 w-3.5" />
+                                    : platform === 'telegram' ? <Send className="h-3.5 w-3.5" />
+                                    : platform === 'discord' ? <Users className="h-3.5 w-3.5" />
+                                    : platform === 'youtube' ? <Youtube className="h-3.5 w-3.5" />
+                                    : platform === 'instagram' ? <Instagram className="h-3.5 w-3.5" />
+                                    : platform === 'reddit' ? <MessageCircle className="h-3.5 w-3.5" />
+                                    : platform === 'tiktok' ? <Music2 className="h-3.5 w-3.5" />
+                                    : <Globe className="h-3.5 w-3.5" />;
+                                  icons.push(
+                                    <HoverCard openDelay={150} closeDelay={100} key="web_hover">
+                                      <HoverCardTrigger asChild>
+                                        <a key="web" href={website} target="_blank" rel="noopener noreferrer" title="Website" className="text-muted-foreground hover:text-foreground">
+                                          {icon}
+                                        </a>
+                                      </HoverCardTrigger>
+                                      <HoverCardContent side="left" align="start" className="w-[420px] p-3 bg-card/95 border shadow-xl">
+                                        <div className="text-xs text-muted-foreground mb-2">Website</div>
+                                        <div className="text-sm break-words leading-snug">{website}</div>
+                                      </HoverCardContent>
+                                    </HoverCard>
+                                  );
+                                }
+                                if (twitter) {
+                                  if (looksLikeTwitterCommunity(twitter)) {
+                                    icons.push(
+                                      <HoverCard openDelay={150} closeDelay={100}>
+                                        <HoverCardTrigger asChild>
+                                          <a key="twcomm" href={twitter} target="_blank" rel="noopener noreferrer" title="Twitter Community" className="text-muted-foreground hover:text-foreground">
+                                            <Users className="h-3.5 w-3.5" />
+                                          </a>
+                                        </HoverCardTrigger>
+                                        <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
+                                          <div className="text-xs text-muted-foreground mb-1">Twitter Community</div>
+                                          <div className="text-sm">Preview</div>
+                                        </HoverCardContent>
+                                      </HoverCard>
+                                    );
+                                  } else {
+                                    icons.push(
+                                      <HoverCard openDelay={150} closeDelay={100} key="tw_hover">
+                                        <HoverCardTrigger asChild>
+                                          <a key="tw" href={twitter} target="_blank" rel="noopener noreferrer" title={looksLikeTweet(twitter) ? 'Tweet' : 'Twitter'} className="text-muted-foreground hover:text-foreground">
+                                            <Twitter className="h-3.5 w-3.5" />
+                                          </a>
+                                        </HoverCardTrigger>
+                                        <HoverCardContent side="left" align="start" className="w-[380px] p-2 bg-card/95 border shadow-xl">
+                                          {looksLikeTweetUrl(twitter) ? (
+                                            <div className="w-full">
+                                              <iframe
+                                                src={`https://twitframe.com/show?url=${encodeURIComponent(normalizeTwitterUrl(twitter))}`}
+                                                className="w-full h-[420px] rounded-md border"
+                                                loading="lazy"
+                                                sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                                              />
+                        </div>
+                                          ) : (
+                                            <div className="text-xs text-muted-foreground">Twitter</div>
+                                          )}
+                                        </HoverCardContent>
+                                      </HoverCard>
+                                    );
+                                  }
+                                }
+                                if (telegram) icons.push(
+                                  <HoverCard openDelay={150} closeDelay={100} key="tg_hover">
+                                    <HoverCardTrigger asChild>
+                                      <a key="tg" href={telegram} target="_blank" rel="noopener noreferrer" title="Telegram" className="text-muted-foreground hover:text-foreground">
+                                        <Send className="h-3.5 w-3.5" />
+                                      </a>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
+                                      <div className="text-xs text-muted-foreground mb-1">Telegram</div>
+                                      <div className="text-sm break-words">{telegram}</div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                );
+                                if (discord) icons.push(
+                                  <a key="dc" href={discord} target="_blank" rel="noopener noreferrer" title="Discord" className="text-muted-foreground hover:text-foreground">
+                                    <Users className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (youtube) icons.push(
+                                  <HoverCard openDelay={150} closeDelay={100} key="yt_hover">
+                                    <HoverCardTrigger asChild>
+                                      <a key="yt" href={youtube} target="_blank" rel="noopener noreferrer" title="YouTube" className="text-red-500 hover:text-red-600">
+                                        <Youtube className="h-3.5 w-3.5" />
+                                      </a>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent side="left" align="start" className="w-[360px] p-2 bg-card/95 border shadow-xl">
+                                      <div className="text-xs text-muted-foreground mb-1">YouTube</div>
+                                      <div className="text-sm break-words">{youtube}</div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                );
+                                if (instagram) icons.push(
+                                  <HoverCard openDelay={150} closeDelay={100} key="ig_hover">
+                                    <HoverCardTrigger asChild>
+                                      <a key="ig" href={instagram} target="_blank" rel="noopener noreferrer" title="Instagram" className="text-pink-500 hover:text-pink-600">
+                                        <Instagram className="h-3.5 w-3.5" />
+                                      </a>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
+                                      <div className="text-xs text-muted-foreground mb-1">Instagram</div>
+                                      <div className="text-sm break-words">{instagram}</div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                );
+                                if (reddit) icons.push(
+                                  <HoverCard openDelay={150} closeDelay={100} key="rd_hover">
+                                    <HoverCardTrigger asChild>
+                                      <a key="rd" href={reddit} target="_blank" rel="noopener noreferrer" title="Reddit" className="text-orange-500 hover:text-orange-600">
+                                        <MessageCircle className="h-3.5 w-3.5" />
+                                      </a>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
+                                      <div className="text-xs text-muted-foreground mb-1">Reddit</div>
+                                      <div className="text-sm break-words">{reddit}</div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                );
+                                if (tiktok) icons.push(
+                                  <HoverCard openDelay={150} closeDelay={100} key="tt_hover">
+                                    <HoverCardTrigger asChild>
+                                      <a key="tt" href={tiktok} target="_blank" rel="noopener noreferrer" title="TikTok" className="text-foreground hover:opacity-80">
+                                        <Music2 className="h-3.5 w-3.5" />
+                                      </a>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent side="left" align="start" className="w-[320px] p-2 bg-card/95 border shadow-xl">
+                                      <div className="text-xs text-muted-foreground mb-1">TikTok</div>
+                                      <div className="text-sm break-words">{tiktok}</div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                );
+                                // If none detected but there is a community-like URL in website, show Users
+                                if (!icons.length && looksLikeCommunity(website)) {
+                                  icons.push(
+                                    <a key="comm" href={website!} target="_blank" rel="noopener noreferrer" title="Community" className="text-muted-foreground hover:text-foreground">
+                                      <Users className="h-3.5 w-3.5" />
+                                    </a>
+                                  );
+                                }
+                                return icons.length ? <span className="inline-flex items-center gap-1">{icons}</span> : null;
+                              })()}
                         </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</span>
@@ -694,11 +988,15 @@ export default function Dashboard() {
                                     className={`text-xs px-2 py-0.5 rounded border ${
                                       token.pool === 'pump' 
                                         ? 'text-green-500 border-green-500 hover:bg-green-500/10' 
-                                        : 'text-blue-500 border-blue-500 hover:bg-blue-500/10'
+                                        : token.pool === 'bonk'
+                                          ? 'text-orange-500 border-orange-500 hover:bg-orange-500/10'
+                                          : token.pool === 'bsc'
+                                            ? 'text-yellow-500 border-yellow-500 hover:bg-yellow-500/10'
+                                            : 'text-blue-500 border-blue-500 hover:bg-blue-500/10'
                                     }`}
-                                    title={`View on ${token.pool === 'pump' ? 'Pump.fun' : 'Bonk.fun'}`}
+                                    title={`View on ${token.pool === 'pump' ? 'Pump.fun' : token.pool === 'bonk' ? 'Bonk.fun' : token.pool === 'bsc' ? 'BscScan' : 'Explorer'}`}
                                   >
-                                    {token.pool === 'pump' ? 'pump.fun' : 'bonk.fun'}
+                                    {token.pool === 'pump' ? 'pump.fun' : token.pool === 'bonk' ? 'bonk.fun' : token.pool === 'bsc' ? 'bscscan' : 'explorer'}
                                   </a>
                                   <Button
                                     variant="outline"
@@ -879,7 +1177,17 @@ export default function Dashboard() {
             </div>
             
             <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
-              {trendingPairs.length > 0 ? (
+              {isLoadingTrending ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                  <p>Loading trending tokens...</p>
+                </div>
+              ) : trendingError ? (
+                <div className="text-center py-8 text-red-500">
+                  <p>❌ Error loading trending</p>
+                  <p className="text-xs mt-2">{String(trendingError)}</p>
+                </div>
+              ) : trendingPairs.length > 0 ? (
                 trendingPairs.map((pair: any, index: number) => {
                   return (
                     <div key={pair.pairAddress || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
@@ -928,14 +1236,14 @@ export default function Dashboard() {
                       
                         <div className="flex items-center space-x-2">
                       <div className="text-right">
-                            <div className={`text-sm font-medium ${
-                              (pair.priceChange?.h6 || 0) >= 0 ? 'text-green-500' : 'text-red-500'
-                            }`}>
-                              {(pair.priceChange?.h6 || 0) >= 0 ? '+' : ''}{(pair.priceChange?.h6 || 0).toFixed(2)}% (6h)
+                            <div className={`text-sm font-medium text-foreground`}>
+                              ${(pair.volume?.h24 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol (24h)
                       </div>
-                            <div className="text-xs text-muted-foreground">
-                              ${(pair.volume?.h6 || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol (6h)
+                            {typeof pair?.priceChange?.h24 === 'number' && (
+                              <div className={`text-xs ${ (pair.priceChange.h24) >= 0 ? 'text-green-500' : 'text-red-500' }`}>
+                                {(pair.priceChange.h24 >= 0 ? '+' : '') + pair.priceChange.h24.toFixed(2)}% (24h)
                     </div>
+                            )}
                             <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(pair)}/100</div>
                             <Button
                               variant="outline"

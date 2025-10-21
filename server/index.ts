@@ -1,13 +1,14 @@
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
-import { setupRoutes } from "./routes";
+import { createServer } from "http";
 import { setupVite, serveStatic, log } from "./vite";
+import { getConfig } from "./src/config/appConfig";
+import { DatabaseService } from "./src/database/service";
+import { PumpPortalService } from "./src/services/pumpPortalService";
+import Moralis from "moralis";
+import { createMemeterBackend } from "./src/router";
 
-// Disable SSL certificate validation in development
-if (process.env.NODE_ENV !== 'production') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  console.log('🔧 SSL certificate validation disabled for development');
-}
+// Note: Do NOT disable TLS certificate validation. Keep secure defaults.
 
 const app = express();
 
@@ -63,8 +64,98 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = setupRoutes(app);
+  // Get configuration
+  const config = getConfig();
+  console.log('📋 Configuration loaded:', {
+    nodeEnv: config.nodeEnv,
+    port: config.port,
+    features: config.features,
+  });
 
+  // Initialize in-memory storage
+  let recentTokens: any[] = [];
+  let recentBNBTokens: any[] = [];
+  // BitQuery removed
+  let recentMigrations: any[] = [];
+
+  // Initialize database service if enabled
+  let databaseService: DatabaseService | null = null;
+  if (config.features.database && config.database) {
+    console.log('🗄️  Initializing database service...');
+    databaseService = new DatabaseService(config.database);
+    try {
+      await databaseService.initialize();
+    } catch (error) {
+      console.warn('⚠️  Database unavailable, continuing without it:', error instanceof Error ? error.message : error);
+      databaseService = null;
+    }
+  } else {
+    console.log('📝 Database disabled, using in-memory storage only');
+  }
+
+  // Initialize PumpPortal service if enabled
+  let pumpPortalService: PumpPortalService | null = null;
+  if (config.features.pumpPortal) {
+    console.log('🔌 Starting PumpPortal WebSocket service...');
+    pumpPortalService = new PumpPortalService({
+      publicBaseUrl: config.publicBaseUrl,
+      databaseService,
+      onToken: (token) => {
+        const idx = recentTokens.findIndex(x => x.mint === token.mint);
+        if (idx !== -1) {
+          recentTokens[idx] = token;
+        } else {
+          recentTokens.push(token);
+        }
+        // Keep only latest 1000 tokens
+        if (recentTokens.length > 1000) {
+          recentTokens.shift();
+        }
+      },
+      onMigration: (migration) => {
+        const exists = recentMigrations.findIndex(x => x.tokenMint === migration.tokenMint);
+        if (exists === -1) {
+          recentMigrations.unshift(migration);
+          // Keep only latest 100 migrations
+          if (recentMigrations.length > 100) {
+            recentMigrations = recentMigrations.slice(0, 100);
+          }
+        }
+      },
+    });
+    pumpPortalService.start();
+  } else {
+    console.log('⏸️  PumpPortal service disabled');
+  }
+
+  // Initialize Moralis SDK (for BSC metadata lookups only)
+  if (process.env.MORALIS_API_KEY) {
+    try {
+      if (!(Moralis as any)?.Core?.isStarted) {
+        await Moralis.start({ apiKey: process.env.MORALIS_API_KEY });
+        console.log('✅ Moralis SDK initialized');
+      }
+    } catch (error) {
+      console.warn('⚠️  Moralis SDK failed to initialize:', error instanceof Error ? error.message : error);
+    }
+  } else {
+    console.log('⏸️  Moralis disabled (no API key)');
+  }
+
+  // BitQuery removed
+
+  // Mount Memeter backend routes
+  app.use(createMemeterBackend({
+    config,
+    databaseService,
+    pumpPortalService,
+    getInMemory: () => ({ recentTokens, recentBNBTokens, recentMigrations }),
+  }));
+
+  // Create HTTP server
+  const server = createServer(app);
+
+  // Error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -73,25 +164,33 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  // Setup Vite in development or serve static files in production
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  // Start server
+  const port = config.port;
+  server.listen(port, '0.0.0.0', () => {
+    log(`🚀 Server running on port ${port}`);
+    log(`📍 Public URL: ${config.publicBaseUrl}`);
+    log(`🌐 Environment: ${config.nodeEnv}`);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, closing server...');
+    server.close(() => {
+      console.log('Server closed');
+      if (pumpPortalService) {
+        pumpPortalService.disconnect();
+      }
+      if (databaseService) {
+        databaseService.close();
+      }
+      process.exit(0);
+    });
   });
 })();

@@ -1,28 +1,26 @@
 import express from 'express';
-import { pool } from '../config/database.js';
+import { tokenStore } from '../services/tokenStore.js';
 
 const router = express.Router();
 
 // Get statistics
 router.get('/stats', async (req, res) => {
   try {
-    const [totalTokens, last24h, last1h] = await Promise.all([
-      pool.query('SELECT COUNT(*) as count FROM tokens'),
-      pool.query(
-        `SELECT COUNT(*) as count FROM tokens 
-         WHERE timestamp > NOW() - INTERVAL '24 hours'`
-      ),
-      pool.query(
-        `SELECT COUNT(*) as count FROM tokens 
-         WHERE timestamp > NOW() - INTERVAL '1 hour'`
-      ),
-    ]);
-
+    const totalTokens = tokenStore.getCount();
+    const tokens = tokenStore.getRecentTokens(500);
+    
+    const now = Date.now();
+    const oneHourAgo = now - (60 * 60 * 1000);
+    const oneDayAgo = now - (24 * 60 * 60 * 1000);
+    
+    const last1h = tokens.filter(t => t.timestamp.getTime() > oneHourAgo).length;
+    const last24h = tokens.filter(t => t.timestamp.getTime() > oneDayAgo).length;
+    
     res.json({
-      totalTokens: parseInt(totalTokens.rows[0].count),
-      last24h: parseInt(last24h.rows[0].count),
-      last1h: parseInt(last1h.rows[0].count),
-      tokensPerHour: Math.round(parseInt(last24h.rows[0].count) / 24),
+      totalTokens,
+      last24h,
+      last1h,
+      tokensPerHour: Math.round(last24h / 24),
     });
   } catch (error) {
     console.error('Error fetching stats:', error);
@@ -32,12 +30,7 @@ router.get('/stats', async (req, res) => {
 
 // Health check
 router.get('/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ status: 'healthy', database: 'connected' });
-  } catch (error) {
-    res.status(503).json({ status: 'unhealthy', database: 'disconnected' });
-  }
+  res.json({ status: 'healthy' });
 });
 
 export default router;

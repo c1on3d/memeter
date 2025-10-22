@@ -8,6 +8,7 @@ import { FavoritesProvider } from "@/contexts/FavoritesContext";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Favorites from "@/pages/favorites";
+import Agent from "@/pages/agent";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/favorites" component={Favorites} />
+      <Route path="/agent" component={Agent} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -282,25 +282,161 @@ export default function Dashboard() {
     refetchInterval: 15000, // Refetch every 15 seconds
   });
 
-  // Fetch recent migrations (disabled - endpoint not available yet)
-  const { data: migrationsData, refetch: refetchMigrations } = useQuery({
+  // Fetch recent migrations
+  const { data: migrationsData, refetch: refetchMigrations, isLoading: isLoadingMigrations, error: migrationsError } = useQuery({
     queryKey: ['migrations'],
     queryFn: async () => {
-      // Endpoint not available yet on backend
-      return { tokens: [], count: 0 };
+      console.log('🔵 Fetching migrations from:', buildApiUrl('/migrations'));
+      const response = await fetch(buildApiUrl('/migrations?limit=30'));
+      if (!response.ok) {
+        console.error('❌ Failed to fetch migrations:', response.status, response.statusText);
+        throw new Error('Failed to fetch migrations');
+      }
+      const data = await response.json();
+      // Handle both array and object responses
+      const tokens = Array.isArray(data) ? data : (data.tokens || []);
+      console.log('✅ Migrations received:', tokens.length, 'tokens');
+      if (tokens.length > 0) {
+        console.log('📊 First migration:', tokens[0]);
+      }
+      return { tokens, count: tokens.length };
     },
-    enabled: false, // Disabled until backend supports this endpoint
     refetchInterval: 15000,
+    retry: 3,
   });
 
-  // Fetch DexScreener trending tokens (disabled - endpoint not available yet)
+  // Fetch DexScreener trending tokens
   const { data: dexScreenerData, refetch: refetchDexScreener, isLoading: isLoadingTrending, error: trendingError } = useQuery({
     queryKey: ['dexScreener'],
     queryFn: async () => {
-      // Endpoint not available yet on backend
-      return { tokens: [] };
+      console.log('🔵 Fetching trending Solana tokens from DexScreener');
+      
+      // Fetch top Solana pairs by 24h volume
+      const response = await fetch('https://api.dexscreener.com/token-profiles/latest/v1');
+      if (!response.ok) {
+        console.error('❌ Failed to fetch trending tokens, trying alternative endpoint');
+        // Fallback: Get pairs from multiple popular Solana tokens
+        const fallbackResponse = await fetch('https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112,EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+        if (!fallbackResponse.ok) throw new Error('Failed to fetch trending tokens');
+        const fallbackData = await fallbackResponse.json();
+        
+        // Track seen mints to avoid duplicates
+        const seenMints = new Set<string>();
+        
+        const tokens = (fallbackData?.pairs || [])
+          .filter((p: any) => {
+            if (p?.chainId !== 'solana') return false;
+            const marketCap = Number(p?.marketCap || 0);
+            if (marketCap < 15000) return false;
+            const mint = p?.baseToken?.address;
+            if (!mint || seenMints.has(mint)) return false;
+            seenMints.add(mint);
+            return true;
+          })
+          .sort((a: any, b: any) => (b?.volume?.h24 || 0) - (a?.volume?.h24 || 0))
+          .slice(0, 30)
+          .map((pair: any) => ({
+            mint: pair.baseToken?.address,
+            name: pair.baseToken?.name || 'Unknown',
+            symbol: pair.baseToken?.symbol || 'UNKNOWN',
+            image: pair.info?.imageUrl || null,
+            marketCapSol: Number(pair.marketCap || 0) / solanaPrice,
+            marketCapUsd: Number(pair.marketCap || 0),
+            priceUsd: Number(pair.priceUsd || 0),
+            pairAddress: pair.pairAddress,
+            volume24h: Number(pair.volume?.h24 || 0),
+            volume6h: Number(pair.volume?.h6 || 0),
+            priceChange24h: Number(pair.priceChange?.h24 || 0),
+            priceChange6h: Number(pair.priceChange?.h6 || 0),
+            liquidity: Number(pair.liquidity?.usd || 0),
+            dexId: pair.dexId,
+            // Social links from DexScreener
+            website: pair.info?.websites?.[0]?.url || null,
+            twitter: pair.info?.socials?.find((s: any) => s.type === 'twitter')?.url || null,
+            telegram: pair.info?.socials?.find((s: any) => s.type === 'telegram')?.url || null,
+            discord: pair.info?.socials?.find((s: any) => s.type === 'discord')?.url || null,
+          }));
+        
+        console.log('✅ Trending tokens received (fallback):', tokens.length);
+        if (tokens.length > 0) {
+          console.log('🔗 First trending token social links (fallback):', {
+            symbol: tokens[0].symbol,
+            website: tokens[0].website,
+            twitter: tokens[0].twitter,
+            telegram: tokens[0].telegram,
+            discord: tokens[0].discord,
+          });
+        }
+        return { tokens };
+      }
+      
+      const profiles = await response.json();
+      
+      // Get token addresses from profiles and fetch their pairs
+      const solanaProfiles = profiles.filter((p: any) => p?.chainId === 'solana').slice(0, 50);
+      const tokenAddresses = solanaProfiles.map((p: any) => p?.tokenAddress).filter(Boolean).join(',');
+      
+      if (!tokenAddresses) {
+        console.log('No Solana tokens in profiles, using empty array');
+        return { tokens: [] };
+      }
+      
+      const pairsResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddresses}`);
+      if (!pairsResponse.ok) throw new Error('Failed to fetch token pairs');
+      const pairsData = await pairsResponse.json();
+      
+      // Track seen mints to avoid duplicates
+      const seenMints = new Set<string>();
+      
+      // Transform, filter, and sort by volume
+      const tokens = (pairsData?.pairs || [])
+        .filter((p: any) => {
+          // Filter: Solana chain only
+          if (p?.chainId !== 'solana') return false;
+          
+          // Filter: Market cap >= $15,000
+          const marketCap = Number(p?.marketCap || 0);
+          if (marketCap < 15000) return false;
+          
+          // Filter: No duplicates
+          const mint = p?.baseToken?.address;
+          if (!mint || seenMints.has(mint)) return false;
+          seenMints.add(mint);
+          
+          return true;
+        })
+        .filter((p: any) => p?.chainId === 'solana')
+        .sort((a: any, b: any) => (b?.volume?.h24 || 0) - (a?.volume?.h24 || 0))
+        .slice(0, 30)
+        .map((pair: any) => ({
+          mint: pair.baseToken?.address,
+          name: pair.baseToken?.name || 'Unknown',
+          symbol: pair.baseToken?.symbol || 'UNKNOWN',
+          image: pair.info?.imageUrl || null,
+          marketCapSol: Number(pair.marketCap || 0) / solanaPrice,
+          marketCapUsd: Number(pair.marketCap || 0),
+          priceUsd: Number(pair.priceUsd || 0),
+          pairAddress: pair.pairAddress,
+          volume24h: Number(pair.volume?.h24 || 0),
+          volume6h: Number(pair.volume?.h6 || 0),
+          priceChange24h: Number(pair.priceChange?.h24 || 0),
+          priceChange6h: Number(pair.priceChange?.h6 || 0),
+          liquidity: Number(pair.liquidity?.usd || 0),
+          dexId: pair.dexId,
+        }));
+      
+      console.log('✅ Trending tokens received:', tokens.length);
+      if (tokens.length > 0) {
+        console.log('🔗 First trending token social links:', {
+          symbol: tokens[0].symbol,
+          website: tokens[0].website,
+          twitter: tokens[0].twitter,
+          telegram: tokens[0].telegram,
+          discord: tokens[0].discord,
+        });
+      }
+      return { tokens };
     },
-    enabled: false, // Disabled until backend supports this endpoint
     refetchInterval: 20000, // Refetch every 20 seconds
   });
 
@@ -317,9 +453,10 @@ export default function Dashboard() {
   const { data: solPriceData } = useSolPrice();
   const solanaPrice = solPriceData?.price || 0;
   const solanaPriceChange24h = solPriceData?.priceChange24h || 0;
+  const solanaVolume24h = (solPriceData as any)?.volume24h || 0;
   const totalTokens = newTokensData?.count || newTokens.length || 0;
   const tokensPerHour = Math.floor(totalTokens / 24) || 0;
-  const migrations = migrationsData?.migrations || [];
+  const migrations = Array.isArray((migrationsData as any)?.tokens) ? (migrationsData as any).tokens : [];
   const totalMigrations = migrations.length;
   
   // Get trending tokens (already sorted by trendingScoreH6 from backend)
@@ -327,9 +464,6 @@ export default function Dashboard() {
     ? (dexScreenerData as any).tokens
     : [];
   const trendingCount = trendingTokens.length;
-  
-  // Calculate Solana Volume (24h total from trending tokens)
-  const solanaVolume24h = trendingTokens.reduce((sum: number, t: any) => sum + (t?.volume24h || 0), 0);
   
   // Migration Threshold (standard Raydium threshold in SOL)
   const migrationThreshold = 412; // SOL
@@ -353,10 +487,12 @@ export default function Dashboard() {
       newTokensCount: newTokens.length,
       totalTokens,
       hasData: !!newTokensData,
+      isLoadingMigrations,
+      migrationsError: migrationsError?.message,
       migrations: migrations.length,
       trendingTokens: trendingTokens.length,
     });
-  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData, migrations.length, trendingTokens.length]);
+  }, [isLoadingNewTokens, newTokensError, newTokens.length, totalTokens, newTokensData, isLoadingMigrations, migrationsError, migrations.length, trendingTokens.length]);
 
   // Debounced search for SPL tokens (by address or symbol/name)
   useEffect(() => {
@@ -372,31 +508,18 @@ export default function Dashboard() {
       setSearchLoading(true);
       setSearchError(null);
       try {
-        const combined: SearchResult[] = [];
-        const isAddressSearch = isSolAddress(q);
-
-        // 1) PumpPortal tokens (from in-memory new/all tokens already in page)
-        const pumpSource: any[] = [
-          ...newTokens,
-          ...(Array.isArray(allTokens) ? allTokens : [])
-        ];
-
-        if (isAddressSearch) {
-          // Address search: Only show original token deployment
-          const pumpMatches = pumpSource.filter((t) => (t?.mint || '').trim() === q);
-          pumpMatches.slice(0, 1).forEach((t) => combined.push({ type: 'pump', token: t }));
-          
-          // DexScreener search disabled - backend endpoint not available yet
-        } else {
-          // Name/symbol search: Show PumpPortal results only
-          const ql = q.toLowerCase();
-          const pumpMatches = pumpSource.filter((t) =>
-            (t?.symbol || '').toLowerCase().includes(ql) || (t?.name || '').toLowerCase().includes(ql)
-          );
-          pumpMatches.slice(0, 20).forEach((t) => combined.push({ type: 'pump', token: t }));
-          
-          // DexScreener search disabled - backend endpoint not available yet
+        // Use backend search endpoint (includes database + DexScreener + Helius)
+        const response = await fetch(buildApiUrl(`/search?q=${encodeURIComponent(q)}&limit=20`));
+        
+        if (!response.ok) {
+          throw new Error('Search failed');
         }
+        
+        const results = await response.json();
+        const combined: SearchResult[] = results.map((token: any) => ({
+          type: 'pump',
+          token: token
+        }));
 
         setSearchResults(combined);
       } catch (e: any) {
@@ -576,8 +699,11 @@ export default function Dashboard() {
                             </div>
                           </div>
                           <div className="text-right">
+                            <div className="text-xs font-medium">
+                              ${((t?.marketCapUsd || (t?.marketCapSol || 0) * solanaPrice)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </div>
                             <div className="text-[10px] text-muted-foreground">
-                              {(t?.marketCapSol || 0).toFixed(2)} SOL MC
+                              Market Cap
                             </div>
                           </div>
                         </a>
@@ -615,16 +741,13 @@ export default function Dashboard() {
               <Button 
                 variant="secondary" 
                 size="sm" 
+                asChild
                 className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-purple-500/10 hover:text-purple-500 hover:border-purple-500/20 hover:shadow-purple-500/25"
-                onClick={() => {
-                  toast({
-                    title: "Agent Coming Soon",
-                    description: "AI-powered token analysis agent will be available soon!",
-                  });
-                }}
               >
-                <Bot className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
-                Agent
+                <Link href="/agent">
+                  <Bot className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
+                  Agent
+                </Link>
               </Button>
               
               <Button 
@@ -726,8 +849,8 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Three Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
           {/* New Tokens Created */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -762,7 +885,12 @@ export default function Dashboard() {
                 </div>
               ) : newTokens.length > 0 ? (
                 newTokens.slice(0, 30).map((token: any, index: number) => {
-                  const marketCapUSD = token.marketCapSol ? (token.marketCapSol * solanaPrice).toFixed(2) : '0';
+                  // Use DexScreener market cap if available, otherwise calculate from SOL
+                  const marketCapUSD = token.marketCapUsd 
+                    ? token.marketCapUsd.toFixed(2)
+                    : token.marketCapSol 
+                      ? (token.marketCapSol * solanaPrice).toFixed(2) 
+                      : '0';
                   const launchpadUrl = token.pool === 'pump' 
                     ? `https://pump.fun/${token.mint}` 
                     : token.pool === 'bonk' 
@@ -914,7 +1042,7 @@ export default function Dashboard() {
                         <div className="flex items-center space-x-2">
                           <div className="text-right">
                             <div className="text-sm font-medium">${Number(marketCapUSD).toLocaleString()}</div>
-                            <div className="text-xs text-blue-500">{token.marketCapSol?.toFixed(2)} SOL</div>
+                            <div className="text-xs text-muted-foreground">Market Cap</div>
                             <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(token)}/100</div>
                           </div>
                           
@@ -973,92 +1101,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Recently Migrated */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold" style={{ fontFamily: 'Orbitron, monospace' }}>
-                Recently Migrated
-              </h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => refetchMigrations()}
-                className="h-8 w-8 p-0 hover:bg-orange-500/10"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            </div>
-            
-            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
-              {migrations.length > 0 ? (
-                migrations.slice(0, 30).map((migration: any, index: number) => {
-                  const marketCapUSD = migration.marketCapAtMigration ? (migration.marketCapAtMigration * solanaPrice).toFixed(2) : '0';
-                  
-                  return (
-                    <div key={migration.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                          <TokenImage mint={migration.mint} symbol={migration.symbol} uri={null} directImage={migration.image} />
-                          
-                        <div>
-                            <div className="font-medium text-sm">{migration.name || migration.symbol || 'Unknown'}</div>
-                            <div className="text-xs text-muted-foreground">{migration.symbol || 'N/A'}</div>
-                        </div>
-                      </div>
-                      
-                        <div className="flex items-center space-x-2">
-                      <div className="text-right">
-                            <div className="text-sm font-medium text-green-500">Migrated</div>
-                            <div className="text-xs text-muted-foreground">${Number(marketCapUSD).toLocaleString()}</div>
-                        </div>
-                      
-                          <div className="flex items-center space-x-1">
-                            <a 
-                              href={`https://solscan.io/token/${migration.mint}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-muted-foreground hover:text-blue-500 transition-colors"
-                              title="View on Solscan"
-                            >
-                              <ExternalLinkIcon className="h-3.5 w-3.5" />
-                            </a>
-                            
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                toggleCategorizedFavorite({
-                                  mint: migration.mint,
-                                  category: 'migrated',
-                                  name: migration.name,
-                                  symbol: migration.symbol,
-                                  marketCap: Number(marketCapUSD),
-                                  image: migration.image,
-                                });
-                                toast({
-                                  title: isFavorite(migration.mint) ? "Removed from Favorites" : "Added to Favorites",
-                                  description: `${migration.symbol} has been ${isFavorite(migration.mint) ? 'removed from' : 'added to'} your favorites`,
-                                });
-                              }}
-                              className="h-6 w-6 p-0"
-                            >
-                              <Star className={`h-3 w-3 ${isFavorite(migration.mint) ? 'fill-orange-500 text-orange-500' : 'text-muted-foreground'}`} />
-                            </Button>
-                      </div>
-                    </div>
-                  </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>No recent migrations</p>
-                  <p className="text-xs mt-2">Migrated tokens will appear here</p>
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Trending Tokens */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -1088,8 +1130,8 @@ export default function Dashboard() {
                 </div>
               ) : trendingTokens.length > 0 ? (
                 trendingTokens.map((token: any, index: number) => {
-                  const marketCapUSD = token.marketCapSol ? (token.marketCapSol * solanaPrice).toFixed(2) : '0';
-                  const dexScreenerUrl = token.pairAddress ? `https://dexscreener.com/solana/${token.pairAddress}` : `https://solscan.io/token/${token.mint}`;
+                  const marketCapUSD = token.marketCapUsd || (token.marketCapSol ? (token.marketCapSol * solanaPrice) : 0);
+                  const dexScreenerUrl = token.pairAddress ? `https://dexscreener.com/solana/${token.pairAddress}` : null;
                   
 
                   return (
@@ -1114,9 +1156,97 @@ export default function Dashboard() {
                               >
                                 <Copy className="h-3.5 w-3.5" />
                               </button>
+                              {/* Social icons if present */}
+                              {(() => {
+                                const { website, twitter, telegram, discord, youtube, instagram, reddit, tiktok } = extractLinks(token);
+                                const looksLikeTweet = (url?: string) => !!url && /(twitter|x)\.com\/[^/]+\/status\//i.test(url);
+                                const looksLikeTwitterCommunity = (url?: string) => !!url && /(twitter|x)\.com\/(i\/communities|communities)/i.test(url);
+                                const looksLikeCommunity = (url?: string) => !!url && /(discord\.gg|discord\.com\/invite|t\.me\/|pump\.fun\/community|dexscreener\.com\/solana)/i.test(url);
+
+                                const icons: JSX.Element[] = [];
+                                if (website) {
+                                  const platform = detectPlatform(website);
+                                  const icon = platform === 'twitter' ? <Twitter className="h-3.5 w-3.5" />
+                                    : platform === 'telegram' ? <Send className="h-3.5 w-3.5" />
+                                    : platform === 'discord' ? <Users className="h-3.5 w-3.5" />
+                                    : platform === 'youtube' ? <Youtube className="h-3.5 w-3.5" />
+                                    : platform === 'instagram' ? <Instagram className="h-3.5 w-3.5" />
+                                    : platform === 'reddit' ? <MessageCircle className="h-3.5 w-3.5" />
+                                    : platform === 'tiktok' ? <Music2 className="h-3.5 w-3.5" />
+                                    : <Globe className="h-3.5 w-3.5" />;
+                                  icons.push(
+                                    <a key="web" href={website} target="_blank" rel="noopener noreferrer" title="Website" className="text-muted-foreground hover:text-foreground">
+                                      {icon}
+                                    </a>
+                                  );
+                                }
+                                if (twitter) {
+                                  if (looksLikeTwitterCommunity(twitter)) {
+                                    icons.push(
+                                      <a key="twcomm" href={twitter} target="_blank" rel="noopener noreferrer" title="Twitter Community" className="text-muted-foreground hover:text-foreground">
+                                        <Users className="h-3.5 w-3.5" />
+                                      </a>
+                                    );
+                                  } else {
+                                    icons.push(
+                                      <a key="tw" href={twitter} target="_blank" rel="noopener noreferrer" title={looksLikeTweet(twitter) ? 'Tweet' : 'Twitter'} className="text-muted-foreground hover:text-foreground">
+                                        <Twitter className="h-3.5 w-3.5" />
+                                      </a>
+                                    );
+                                  }
+                                }
+                                if (telegram) icons.push(
+                                  <a key="tg" href={telegram} target="_blank" rel="noopener noreferrer" title="Telegram" className="text-muted-foreground hover:text-foreground">
+                                    <Send className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (discord) icons.push(
+                                  <a key="dc" href={discord} target="_blank" rel="noopener noreferrer" title="Discord" className="text-muted-foreground hover:text-foreground">
+                                    <Users className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (youtube) icons.push(
+                                  <a key="yt" href={youtube} target="_blank" rel="noopener noreferrer" title="YouTube" className="text-red-500 hover:text-red-600">
+                                    <Youtube className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (instagram) icons.push(
+                                  <a key="ig" href={instagram} target="_blank" rel="noopener noreferrer" title="Instagram" className="text-pink-500 hover:text-pink-600">
+                                    <Instagram className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (reddit) icons.push(
+                                  <a key="rd" href={reddit} target="_blank" rel="noopener noreferrer" title="Reddit" className="text-orange-500 hover:text-orange-600">
+                                    <MessageCircle className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (tiktok) icons.push(
+                                  <a key="tt" href={tiktok} target="_blank" rel="noopener noreferrer" title="TikTok" className="text-foreground hover:opacity-80">
+                                    <Music2 className="h-3.5 w-3.5" />
+                                  </a>
+                                );
+                                if (!icons.length && looksLikeCommunity(website)) {
+                                  icons.push(
+                                    <a key="comm" href={website!} target="_blank" rel="noopener noreferrer" title="Community" className="text-muted-foreground hover:text-foreground">
+                                      <Users className="h-3.5 w-3.5" />
+                                    </a>
+                                  );
+                                }
+                                return icons.length ? <span className="inline-flex items-center gap-1">{icons}</span> : null;
+                              })()}
                             </div>
-                            <div className="text-xs text-muted-foreground">
-                              {token.symbol || 'N/A'}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">{token.symbol || 'N/A'}</span>
+                              {dexScreenerUrl && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-5 px-2 text-purple-500 border-purple-500 hover:bg-purple-500/10"
+                                  onClick={(e) => { e.preventDefault(); handleSummarize(token); }}
+                                >
+                                  Analyze
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1124,7 +1254,7 @@ export default function Dashboard() {
                         <div className="flex items-center space-x-2">
                           <div className="text-right">
                             <div className="text-sm font-medium">${Number(marketCapUSD).toLocaleString()}</div>
-                            <div className="text-xs text-blue-500">{token.marketCapSol?.toFixed(2)} SOL</div>
+                            <div className="text-xs text-muted-foreground">Market Cap</div>
                             <div className="text-[10px] text-muted-foreground">Risk: {computeRiskScore(token)}/100</div>
                           </div>
                           

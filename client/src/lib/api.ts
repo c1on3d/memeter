@@ -59,6 +59,12 @@ export const API_ENDPOINTS = {
   STATS: '/stats',
   HEALTH: '/health',
   
+  // Trades
+  TRADES_TOKEN: '/trades/token',
+  TRADES_RECENT: '/trades/recent',
+  TRADES_WALLET: '/trades/wallet',
+  TRADES_STATS: '/trades/stats',
+  
   // Backend status
   STATUS: '/',
 } as const;

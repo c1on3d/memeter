@@ -4,11 +4,14 @@ Real-time memecoin tracker for Solana, connected to PumpPortal WebSocket and Goo
 
 ## Features
 
-- 🔴 Live token tracking from PumpPortal
+- 🔴 Live token tracking from PumpPortal & PumpAPI.io
+- 💰 Real-time trade tracking (buys/sells)
+- 🚀 Migration tracking (graduated tokens)
 - 💾 Cloud SQL database storage
 - 🖼️ Token images with CORS proxy
 - 🔗 Social media links extraction
-- 📊 Real-time statistics
+- 📊 Real-time statistics & market data
+- 💹 DexScreener integration for live prices
 - ⭐ Favorites system
 - 🌙 Dark/Light theme
 
@@ -56,6 +59,8 @@ DB_USER=postgres
 DB_PASSWORD=your-password
 DB_NAME=memeter
 PUMPPORTAL_WS_URL=wss://pumpportal.fun/api/data
+PUMPAPI_WS_URL=wss://stream.pumpapi.io/
+HELIUS_API_KEY=your_helius_api_key
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
 ```
 
@@ -75,12 +80,24 @@ Backend: http://localhost:8080
 
 ## API Endpoints
 
+**Tokens:**
 - `GET /recent?limit=50` - Get recent tokens
 - `GET /token/:mint` - Get token by mint address
 - `GET /search?q=query` - Search tokens
+- `GET /migrations?limit=30` - Get graduated/migrated tokens
+
+**Trades:**
+- `GET /trades/token/:mint?limit=50` - Get trades for a token
+- `GET /trades/recent?limit=100` - Get recent trades
+- `GET /trades/wallet/:address?limit=50` - Get trades by wallet
+- `GET /trades/stats/:mint` - Get trade statistics
+
+**Other:**
 - `GET /stats` - Get statistics
 - `GET /health` - Health check
 - `GET /api/image-proxy?url=...` - Image proxy
+- `GET /api/price/sol` - Get SOL price
+- `GET /api/marketcap/:mint` - Get token market cap
 
 ## Database Schema
 

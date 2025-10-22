@@ -16,8 +16,9 @@ const poolConfig: pg.PoolConfig = {
 };
 
 // Use Unix socket for Cloud SQL in production, TCP for local development
-if (process.env.INSTANCE_CONNECTION_NAME && process.env.NODE_ENV === 'production') {
-  poolConfig.host = `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`;
+if (process.env.NODE_ENV === 'production') {
+  // Cloud Run uses Unix socket
+  poolConfig.host = `/cloudsql/memeter:us-central1:memeter-db`;
 } else {
   poolConfig.host = process.env.DB_HOST || 'localhost';
   poolConfig.port = parseInt(process.env.DB_PORT || '5432');
@@ -61,6 +62,12 @@ export async function initializeDatabase() {
         creator VARCHAR(44),
         pool VARCHAR(20),
         market_cap_sol DECIMAL(20, 8),
+        market_cap_usd DECIMAL(20, 2),
+        price_usd DECIMAL(20, 10),
+        volume_24h DECIMAL(20, 2),
+        price_change_24h DECIMAL(10, 2),
+        liquidity_usd DECIMAL(20, 2),
+        pair_address TEXT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         website TEXT,
         twitter TEXT,
@@ -70,6 +77,8 @@ export async function initializeDatabase() {
         instagram TEXT,
         reddit TEXT,
         tiktok TEXT,
+        raydium_pool TEXT,
+        migrated_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -83,6 +92,59 @@ export async function initializeDatabase() {
     // Create index on mint for faster lookups
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_tokens_mint ON tokens(mint)
+    `);
+
+    // Add migration columns if they don't exist
+    await client.query(`
+      ALTER TABLE tokens 
+      ADD COLUMN IF NOT EXISTS raydium_pool TEXT,
+      ADD COLUMN IF NOT EXISTS migrated_at TIMESTAMP
+    `);
+
+    // Add DexScreener market data columns if they don't exist
+    await client.query(`
+      ALTER TABLE tokens 
+      ADD COLUMN IF NOT EXISTS market_cap_usd DECIMAL(20, 2),
+      ADD COLUMN IF NOT EXISTS price_usd DECIMAL(20, 10),
+      ADD COLUMN IF NOT EXISTS volume_24h DECIMAL(20, 2),
+      ADD COLUMN IF NOT EXISTS price_change_24h DECIMAL(10, 2),
+      ADD COLUMN IF NOT EXISTS liquidity_usd DECIMAL(20, 2),
+      ADD COLUMN IF NOT EXISTS pair_address TEXT
+    `);
+
+    // Create index on migrated_at for faster migration queries
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_tokens_migrated_at ON tokens(migrated_at DESC) WHERE migrated_at IS NOT NULL
+    `);
+
+    // Trades table for tracking buy/sell transactions
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trades (
+        id SERIAL PRIMARY KEY,
+        mint VARCHAR(44) NOT NULL,
+        tx_type VARCHAR(10) NOT NULL,
+        signature VARCHAR(88) UNIQUE NOT NULL,
+        trader VARCHAR(44),
+        sol_amount DECIMAL(20, 8),
+        token_amount DECIMAL(30, 8),
+        price_sol DECIMAL(20, 10),
+        market_cap_sol DECIMAL(20, 8),
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create indexes for trades table
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_trades_mint ON trades(mint)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp DESC)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_trades_trader ON trades(trader)
     `);
 
     await client.query('COMMIT');

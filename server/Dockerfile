@@ -1,11 +1,13 @@
+# Use Node.js LTS
 FROM node:20-slim
 
+# Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev for build)
+# Install ALL dependencies (including devDependencies for build)
 RUN npm ci
 
 # Copy source code
@@ -14,11 +16,11 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
-# Remove dev dependencies
+# Remove devDependencies after build
 RUN npm prune --production
 
 # Expose port
 EXPOSE 8080
 
-# Start server
+# Start the server
 CMD ["node", "dist/index.js"]

@@ -14,7 +14,7 @@ router.get('/api/marketcap/:mint', async (req, res) => {
       return res.status(404).json({ error: 'Token not found' });
     }
     
-    const data = await response.json();
+    const data = await response.json() as any;
     const pairs = data?.pairs || [];
     
     if (pairs.length === 0) {
@@ -58,7 +58,7 @@ router.post('/api/marketcap/batch', async (req, res) => {
           const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
           if (!response.ok) return { mint, marketCapUsd: 0 };
           
-          const data = await response.json();
+          const data = await response.json() as any;
           const pairs = data?.pairs || [];
           if (pairs.length === 0) return { mint, marketCapUsd: 0 };
           

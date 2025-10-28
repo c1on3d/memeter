@@ -19,7 +19,7 @@ export class HeliusService {
             });
 
             if (!response.ok) return null;
-            const data = await response.json();
+            const data = await response.json() as any;
             return data.result;
         } catch (error) {
             console.error('Helius metadata fetch error:', error);
@@ -92,7 +92,7 @@ export class HeliusService {
             });
 
             if (!response.ok) return null;
-            const data = await response.json();
+            const data = await response.json() as any;
             return data.result;
         } catch (error) {
             console.error('Helius wallet tokens fetch error:', error);

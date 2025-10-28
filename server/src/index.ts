@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { PumpApiService } from './services/pumpApiService.js';
+import { databaseService } from './services/databaseService.js';
 import tokensRouter from './routes/tokens.js';
 import statsRouter from './routes/stats.js';
 import imageProxyRouter from './routes/imageProxy.js';
@@ -53,25 +53,35 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Initialize PumpAPI service
-const pumpApiService = new PumpApiService();
+// Initialize database and start server
+async function startServer() {
+  try {
+    // Connect to database
+    await databaseService.connect();
+    
+    // Start server
+    app.listen(PORT, () => {
+      console.log('🚀 Memeter Backend started');
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`📡 API available at http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
 
-// Start server
-app.listen(PORT, () => {
-  console.log('🚀 Memeter Backend started');
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📡 API available at http://localhost:${PORT}`);
-});
+startServer();
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
-  pumpApiService.disconnect();
+  await databaseService.disconnect();
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
-  pumpApiService.disconnect();
+  await databaseService.disconnect();
   process.exit(0);
 });

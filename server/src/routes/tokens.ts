@@ -1,5 +1,5 @@
 import express from 'express';
-import { tokenStore } from '../services/tokenStore.js';
+import { databaseService } from '../services/databaseService.js';
 
 const router = express.Router();
 
@@ -7,11 +7,17 @@ const router = express.Router();
 router.get('/recent', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
-    const tokens = tokenStore.getRecentTokens(limit);
+    const tokens = await databaseService.getRecentTokens(limit);
     
     res.json(tokens);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching recent tokens:', error);
+    
+    // Return appropriate status code based on error type
+    if (error.message?.includes('not connected')) {
+      return res.status(503).json({ error: 'Database unavailable' });
+    }
+    
     res.status(500).json({ error: 'Failed to fetch tokens' });
   }
 });
@@ -26,10 +32,15 @@ router.get('/search', async (req, res) => {
       return res.json([]);
     }
     
-    const tokens = tokenStore.searchTokens(query, limit);
+    const tokens = await databaseService.searchTokens(query, limit);
     res.json(tokens);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error searching tokens:', error);
+    
+    if (error.message?.includes('not connected')) {
+      return res.status(503).json({ error: 'Database unavailable' });
+    }
+    
     res.status(500).json({ error: 'Failed to search tokens' });
   }
 });
@@ -38,15 +49,20 @@ router.get('/search', async (req, res) => {
 router.get('/token/:mint', async (req, res) => {
   try {
     const { mint } = req.params;
-    const token = tokenStore.getToken(mint);
+    const token = await databaseService.getTokenByMint(mint);
     
     if (!token) {
       return res.status(404).json({ error: 'Token not found' });
     }
     
     res.json(token);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching token:', error);
+    
+    if (error.message?.includes('not connected')) {
+      return res.status(503).json({ error: 'Database unavailable' });
+    }
+    
     res.status(500).json({ error: 'Failed to fetch token' });
   }
 });

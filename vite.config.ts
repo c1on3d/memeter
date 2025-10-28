@@ -7,8 +7,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
   },
   root: path.resolve(import.meta.dirname, "client"),
@@ -19,12 +17,10 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
-    hmr: false, // Disable HMR to prevent WebSocket errors
+    hmr: false,
     fs: {
       strict: true,
       deny: ["**/.*"],
     },
-    // Proxy disabled - using VITE_API_URL from .env instead
-    // This allows direct connection to backend API
   },
 });

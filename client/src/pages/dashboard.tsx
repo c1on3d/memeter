@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { usePhantomWallet } from "@/hooks/usePhantomWallet";
 import { useSolPrice } from "@/hooks/useSolPrice";
-import { Search, Wallet, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy, Globe, Twitter, Send, Users, Youtube, Instagram, Music2, MessageCircle, Bot } from "lucide-react";
+import { Search, TrendingUp, Activity, Timer, Target, RefreshCw, ExternalLinkIcon, Star, Copy, Globe, Twitter, Send, Users, Youtube, Instagram, Music2, MessageCircle, Bot, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
@@ -225,9 +224,6 @@ export default function Dashboard() {
       return null;
     }
   };
-
-  // Wallet connection
-  const { connected, publicKey, connect, disconnect, isPhantomInstalled } = usePhantomWallet();
 
   // Fetch new tokens from backend
   const { data: newTokensData, refetch: refetchNewTokens, isLoading: isLoadingNewTokens, error: newTokensError } = useQuery({
@@ -533,41 +529,6 @@ export default function Dashboard() {
     return () => clearTimeout(id);
   }, [searchQuery]);
   
-  const handleWalletConnect = async () => {
-    if (!isPhantomInstalled) {
-      toast({
-        title: "Phantom Wallet Required",
-        description: "Please install the Phantom wallet extension to continue.",
-        variant: "destructive",
-      });
-      window.open("https://phantom.app/", "_blank");
-      return;
-    }
-    
-    try {
-      if (connected) {
-        await disconnect();
-        localStorage.removeItem('memeter_authenticated');
-        toast({
-          title: "Wallet Disconnected",
-          description: "Your Phantom wallet has been disconnected.",
-        });
-      } else {
-        await connect();
-        toast({
-          title: "Wallet Connected",
-          description: "Your Phantom wallet is now connected.",
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Connection Failed",
-        description: error instanceof Error ? error.message : "Failed to connect wallet",
-        variant: "destructive",
-      });
-    }
-  };
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
@@ -600,7 +561,7 @@ export default function Dashboard() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 {(searchLoading || searchError || searchResults.length > 0) && (
-                  <div className={`absolute mt-2 w-[28rem] max-h-96 overflow-y-auto z-50 border border-border/50 rounded-lg shadow-lg p-2 ${isSolAddress(searchQuery.trim()) ? 'bg-black' : 'bg-card/95'}`}>
+                  <div className={`absolute mt-2 w-[28rem] max-h-96 overflow-y-auto z-50 border border-white/30 rounded-lg shadow-lg p-2 ${isSolAddress(searchQuery.trim()) ? 'bg-black' : 'bg-card/95'}`}>
                     {searchLoading && (
                       <div className="py-4 text-sm text-muted-foreground text-center">Searching…</div>
                     )}
@@ -751,20 +712,18 @@ export default function Dashboard() {
               </Button>
               
               <Button 
-                variant={connected ? "default" : "secondary"} 
+                variant="secondary" 
                 size="sm" 
-                onClick={handleWalletConnect}
-                className={`hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/20 hover:shadow-green-500/25 ${connected ? 
-                  "bg-green-600 hover:bg-green-700 hover:scale-105 hover:shadow-lg transition-all duration-200" : 
-                  ""
-                }`}
+                asChild
+                className="hover:scale-105 hover:shadow-lg transition-all duration-200 hover:bg-blue-500/10 hover:text-blue-500 hover:border-blue-500/20 hover:shadow-blue-500/25"
               >
-                <Wallet className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
-                {connected ? 
-                  `${publicKey?.slice(0, 4)}...${publicKey?.slice(-4)}` : 
-                  "Wallet"
-                }
+                <Link href="/radar">
+                  <Gauge className="h-4 w-4 mr-2 transition-transform duration-200 hover:scale-110" />
+                  Radar
+                </Link>
               </Button>
+              
+
             </div>
           </div>
         </div>
@@ -867,7 +826,7 @@ export default function Dashboard() {
               </Button>
             </div>
             
-            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
+            <div className="bg-card/50 border border-white/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
               {isLoadingNewTokens ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -900,7 +859,7 @@ export default function Dashboard() {
                         : null;
                   
                   return (
-                    <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                    <div key={token.mint || index} className="bg-card/30 border border-white/15 rounded-lg p-3 hover:bg-card/50 hover:border-white/40 transition-all">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
                           {/* Token Image - Uses Pump.fun CDN */}
@@ -1117,7 +1076,7 @@ export default function Dashboard() {
               </Button>
             </div>
             
-            <div className="bg-card/50 border border-border/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
+            <div className="bg-card/50 border border-white/20 rounded-lg p-4 min-h-[600px] max-h-[800px] overflow-y-auto space-y-3">
               {isLoadingTrending ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <div className="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -1135,7 +1094,7 @@ export default function Dashboard() {
                   
 
                   return (
-                    <div key={token.mint || index} className="bg-card/30 border border-border/10 rounded-lg p-3 hover:bg-card/50 transition-colors">
+                    <div key={token.mint || index} className="bg-card/30 border border-white/15 rounded-lg p-3 hover:bg-card/50 hover:border-white/40 transition-all">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <TokenImage mint={token.mint} symbol={token.symbol} uri={null} directImage={token.image} />
@@ -1310,3 +1269,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

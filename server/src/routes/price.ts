@@ -12,7 +12,7 @@ router.get('/api/price/sol', async (req, res) => {
     const dexResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${SOL_MINT}`);
 
     if (dexResponse.ok) {
-      const data = await dexResponse.json();
+      const data = await dexResponse.json() as any;
       const pairs = data?.pairs || [];
 
       // Filter for USDC pairs and pick highest liquidity
@@ -48,7 +48,7 @@ router.get('/api/price/sol', async (req, res) => {
     const cgResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true');
 
     if (cgResponse.ok) {
-      const cgData = await cgResponse.json();
+      const cgData = await cgResponse.json() as any;
       const price = cgData?.solana?.usd || 0;
       const priceChange24h = cgData?.solana?.usd_24h_change || 0;
       const volume24h = cgData?.solana?.usd_24h_vol || 0;
@@ -78,7 +78,7 @@ router.get('/api/stats/solana', async (req, res) => {
       return res.status(503).json({ error: 'Unable to fetch Solana stats' });
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
     const pairs = data?.pairs || [];
 
     // Calculate total volume across all Solana DEXs
@@ -117,7 +117,7 @@ router.get('/api/price/:mint', async (req, res) => {
       return res.status(404).json({ error: 'Token not found' });
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
     const pairs = data?.pairs || [];
 
     if (pairs.length === 0) {

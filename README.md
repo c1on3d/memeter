@@ -1,155 +1,90 @@
 # Memeter - Memecoin Alpha Tracker
 
-Real-time memecoin tracker for Solana, connected to PumpPortal WebSocket and Google Cloud SQL.
+Real-time memecoin tracker for Solana with PumpPortal integration.
 
 ## Features
 
-- 🔴 Live token tracking from PumpPortal & PumpAPI.io
-- 💰 Real-time trade tracking (buys/sells)
-- 🚀 Migration tracking (graduated tokens)
-- 💾 Cloud SQL database storage
-- 🖼️ Token images with CORS proxy
-- 🔗 Social media links extraction
-- 📊 Real-time statistics & market data
-- 💹 DexScreener integration for live prices
+- 🔴 Live token tracking from PumpPortal
+- 💰 Real-time trade tracking
+- 🚀 Migration tracking
+- 📊 Market statistics & DexScreener integration
 - ⭐ Favorites system
 - 🌙 Dark/Light theme
 
 ## Tech Stack
 
-**Frontend:**
-- React + TypeScript
-- Vite
-- TailwindCSS
-- TanStack Query
-- Wouter (routing)
+**Frontend:** React + TypeScript + Vite + TailwindCSS
+**Backend:** Node.js + Express + PostgreSQL (Cloud SQL)
+**Ingestion:** Python WebSocket client
 
-**Backend:**
-- Node.js + Express
-- TypeScript
-- PostgreSQL (Cloud SQL)
-- WebSocket (PumpPortal)
+## Architecture
 
-## Setup
+1. **Python Script** → PumpPortal WebSocket → PostgreSQL
+2. **Node.js API** → PostgreSQL → REST endpoints
+3. **React Frontend** → API → User interface
+
+## Quick Start
 
 ### 1. Install Dependencies
-
 ```bash
-# Frontend
 npm install
-
-# Backend
-cd server
-npm install
+cd server && npm install
 ```
 
 ### 2. Configure Environment
 
 **Frontend** (`client/.env`):
 ```env
-VITE_API_URL=http://localhost:8080
+VITE_API_URL=http://localhost:8081
 ```
 
 **Backend** (`server/.env`):
 ```env
-PORT=8080
-DB_HOST=your-cloud-sql-ip
+PORT=8081
+NODE_ENV=development
+HELIUS_API_KEY=your_key
+ALLOWED_ORIGINS=http://localhost:3001
+DB_HOST=localhost
 DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your-password
-DB_NAME=memeter
-PUMPPORTAL_WS_URL=wss://pumpportal.fun/api/data
-PUMPAPI_WS_URL=wss://stream.pumpapi.io/
-HELIUS_API_KEY=your_helius_api_key
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+DB_NAME=your_db
+DB_USER=your_user
+DB_PASSWORD=your_password
+DB_SSL=false
+DB_POOL_MIN=2
+DB_POOL_MAX=10
 ```
 
-### 3. Run Development Servers
-
+### 3. Setup Cloud SQL Proxy
 ```bash
-# Terminal 1 - Backend
-cd server
-npm run dev
+cloud_sql_proxy -instances=PROJECT:REGION:INSTANCE=tcp:5432
+```
 
-# Terminal 2 - Frontend
+### 4. Run Services
+```bash
+# Terminal 1: Python ingestion script
+python your_script.py
+
+# Terminal 2: Backend
+cd server && npm run dev
+
+# Terminal 3: Frontend
 npm run dev
 ```
 
-Frontend: http://localhost:3001
-Backend: http://localhost:8080
+Visit http://localhost:3001
 
 ## API Endpoints
 
-**Tokens:**
-- `GET /recent?limit=50` - Get recent tokens
-- `GET /token/:mint` - Get token by mint address
+- `GET /recent?limit=50` - Recent tokens
+- `GET /token/:mint` - Token by mint
 - `GET /search?q=query` - Search tokens
-- `GET /migrations?limit=30` - Get graduated/migrated tokens
-
-**Trades:**
-- `GET /trades/token/:mint?limit=50` - Get trades for a token
-- `GET /trades/recent?limit=100` - Get recent trades
-- `GET /trades/wallet/:address?limit=50` - Get trades by wallet
-- `GET /trades/stats/:mint` - Get trade statistics
-
-**Other:**
-- `GET /stats` - Get statistics
+- `GET /trades/token/:mint` - Token trades
+- `GET /stats` - Statistics
 - `GET /health` - Health check
-- `GET /api/image-proxy?url=...` - Image proxy
-- `GET /api/price/sol` - Get SOL price
-- `GET /api/marketcap/:mint` - Get token market cap
-
-## Database Schema
-
-```sql
-CREATE TABLE tokens (
-  id SERIAL PRIMARY KEY,
-  mint VARCHAR(44) UNIQUE NOT NULL,
-  name VARCHAR(255),
-  symbol VARCHAR(50),
-  uri TEXT,
-  image TEXT,
-  description TEXT,
-  creator VARCHAR(44),
-  pool VARCHAR(20),
-  market_cap_sol DECIMAL(20, 8),
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  website TEXT,
-  twitter TEXT,
-  telegram TEXT,
-  discord TEXT,
-  youtube TEXT,
-  instagram TEXT,
-  reddit TEXT,
-  tiktok TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
 
 ## Deployment
 
-### Backend (Google Cloud Run)
-
-```bash
-cd server
-gcloud run deploy memeter-api \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --add-cloudsql-instances PROJECT:REGION:INSTANCE
-```
-
-### Frontend
-
-Build and deploy to your preferred hosting:
-
-```bash
-npm run build
-# Deploy dist/public folder
-```
-
-Update `client/.env` with production backend URL.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment guide.
 
 ## License
 

@@ -55,18 +55,19 @@ export default function Landing() {
             />
           </div>
           
-          <p className="text-2xl text-white mb-8">
+          <p className="text-2xl text-white mb-8 font-bold" style={{ fontFamily: 'Montserrat, sans-serif' }}>
             Real-time Token Risk Analysis & Summary Tool
           </p>
           
-          <p className="text-lg text-white mb-12 max-w-2xl mx-auto">
+          <p className="text-lg text-white mb-12 max-w-2xl mx-auto" style={{ fontFamily: 'Montserrat, sans-serif' }}>
             Advanced AI-powered risk scoring and comprehensive token analysis for smarter trading decisions.
           </p>
 
           <Button
             onClick={handleEnter}
             size="lg"
-            className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-6 text-lg font-semibold rounded-xl shadow-2xl hover:shadow-orange-500/50 transition-all duration-300 hover:scale-105"
+            className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-6 text-lg font-bold rounded-xl shadow-2xl hover:shadow-orange-500/50 transition-all duration-300 hover:scale-105"
+            style={{ fontFamily: 'Montserrat, sans-serif' }}
           >
             Enter Dashboard
             <ExternalLink className="ml-2 h-5 w-5" />
@@ -81,10 +82,10 @@ export default function Landing() {
                 <div className="flex justify-center mb-4">
                   {feature.icon}
                 </div>
-                <h3 className="text-lg font-semibold mb-2 text-white">
+                <h3 className="text-lg font-bold mb-2 text-white" style={{ fontFamily: 'Montserrat, sans-serif' }}>
                   {feature.title}
                 </h3>
-                <p className="text-sm text-white">
+                <p className="text-sm text-white" style={{ fontFamily: 'Montserrat, sans-serif' }}>
                   {feature.description}
                 </p>
               </CardContent>
@@ -99,7 +100,7 @@ export default function Landing() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto mb-8">
             {/* Product */}
             <div>
-              <h3 className="text-white font-semibold mb-4">Product</h3>
+              <h3 className="text-white font-bold mb-4" style={{ fontFamily: 'Montserrat, sans-serif' }}>Product</h3>
               <ul className="space-y-2">
                 <li><a href="/dashboard" className="text-white hover:text-white transition-colors">Dashboard</a></li>
                 <li><a href="#" className="text-white hover:text-white transition-colors">Screener</a></li>
@@ -110,7 +111,7 @@ export default function Landing() {
 
             {/* Community */}
             <div>
-              <h3 className="text-white font-semibold mb-4">Community</h3>
+              <h3 className="text-white font-bold mb-4" style={{ fontFamily: 'Montserrat, sans-serif' }}>Community</h3>
               <ul className="space-y-2">
                 <li>
                   <a 
@@ -128,7 +129,7 @@ export default function Landing() {
 
             {/* Legal */}
             <div>
-              <h3 className="text-white font-semibold mb-4">Legal</h3>
+              <h3 className="text-white font-bold mb-4" style={{ fontFamily: 'Montserrat, sans-serif' }}>Legal</h3>
               <ul className="space-y-2">
                 <li><a href="#" className="text-white hover:text-white transition-colors">Privacy Policy</a></li>
                 <li><a href="#" className="text-white hover:text-white transition-colors">Terms of Service</a></li>
